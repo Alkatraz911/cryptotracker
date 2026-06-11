@@ -1,0 +1,203 @@
+* { box-sizing: border-box; }
+body, html, #root {
+  margin: 0;
+  height: 100%;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+}
+.app { display: flex; height: 100vh; }
+
+.sidebar {
+  width: 340px;
+  flex-shrink: 0;
+  padding: 18px;
+  background: #111827;
+  border-right: 1px solid #1f2937;
+  overflow-y: auto;
+}
+.sidebar h1 { margin: 0; font-size: 20px; }
+.sub { margin: 2px 0 16px; color: #6b7280; font-size: 12px; }
+.muted { color: #9ca3af; font-size: 12px; margin: 10px 0 4px; }
+.hint { margin-top: 18px; color: #4b5563; font-size: 11px; }
+
+/* loader */
+.filebtn {
+  display: block; text-align: center; cursor: pointer;
+  padding: 10px; border: 1px dashed #3b82f6; border-radius: 8px;
+  background: #0b1220; color: #93c5fd; font-size: 13px;
+}
+.filebtn:hover { background: #0d1830; }
+
+.filelist { list-style: none; margin: 8px 0 0; padding: 0; }
+.filelist li {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px; background: #1f2937; border-radius: 5px; margin-bottom: 4px;
+}
+.fname { font-size: 11px; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm {
+  width: auto; margin: 0; padding: 0 6px; border: 0; background: none;
+  color: #f87171; font-size: 16px; line-height: 1; cursor: pointer;
+}
+.rm:hover { background: none; color: #fca5a5; }
+
+.encrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: 11px; color: #9ca3af; }
+.encrow select {
+  flex: 1; max-width: 200px; padding: 5px 6px; font-size: 11px;
+  background: #0b1220; color: #e5e7eb; border: 1px solid #374151; border-radius: 5px;
+}
+.warn-inline {
+  margin-top: 10px; padding: 8px; border-radius: 6px;
+  background: #78350f; color: #fde68a; font-size: 12px;
+}
+.mapgrid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.maprow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.maprow span { font-size: 11px; color: #cbd5e1; }
+.maprow .req { color: #f87171; font-style: normal; margin-left: 2px; }
+.maprow select {
+  flex: 1; max-width: 175px; padding: 4px 6px; font-size: 11px;
+  background: #0b1220; color: #e5e7eb; border: 1px solid #374151; border-radius: 5px;
+}
+
+/* stats */
+.stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.stat {
+  background: #1f2937; border-radius: 8px; padding: 8px 10px;
+  display: flex; flex-direction: column; min-width: 60px;
+}
+.stat .num { font-size: 18px; font-weight: 700; }
+.stat .lbl { font-size: 10px; color: #9ca3af; text-transform: uppercase; }
+
+button {
+  margin-top: 8px; width: 100%; padding: 8px;
+  border-radius: 6px; border: 1px solid #374151;
+  background: #1f2937; color: #e5e7eb; cursor: pointer; font-size: 13px;
+}
+button:hover { background: #374151; }
+button.primary { background: #2563eb; border-color: #2563eb; font-weight: 600; }
+
+.error {
+  margin-top: 10px; padding: 8px; border-radius: 6px;
+  background: #7f1d1d; color: #fecaca; font-size: 12px;
+}
+.warn { margin-top: 12px; font-size: 12px; color: #fbbf24; }
+.warn ul { margin: 6px 0 0; padding-left: 16px; color: #cbd5e1; }
+
+/* details */
+.details {
+  margin-top: 14px; padding: 12px; border-radius: 8px; background: #1f2937;
+}
+.dhead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #0b1220; }
+.net { font-size: 11px; color: #93c5fd; }
+.drow { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; font-size: 12px; }
+.dk { color: #9ca3af; }
+.dv { text-align: right; word-break: break-all; }
+.mono { font-family: ui-monospace, monospace; font-size: 11px; }
+.explorerbtn {
+  display: block; text-align: center; margin-top: 10px; padding: 8px;
+  border-radius: 6px; background: #2563eb; color: #fff;
+  text-decoration: none; font-size: 13px; font-weight: 600;
+}
+
+/* linked accounts */
+.linked { margin-top: 14px; padding: 12px; border-radius: 8px; background: #1f2937; font-size: 12px; }
+.linked ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.linked li { padding: 6px 0; border-top: 1px solid #374151; }
+.linkrow {
+  width: auto; display: inline; margin: 0; padding: 0; border: 0; background: none;
+  color: #93c5fd; cursor: pointer; font-size: 12px; text-decoration: underline;
+}
+.wt { margin: 0 6px; color: #f59e0b; font-weight: 600; }
+.signals { margin-top: 3px; display: flex; gap: 6px; }
+.signals span { background: #374151; border-radius: 4px; padding: 1px 6px; font-size: 10px; }
+
+/* auth */
+.boot { display: flex; align-items: center; justify-content: center; height: 100vh; color: #6b7280; }
+.authwrap { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.authcard {
+  width: 320px; padding: 28px; background: #111827;
+  border: 1px solid #1f2937; border-radius: 12px; display: flex; flex-direction: column;
+}
+.authcard h1 { margin: 0; font-size: 22px; }
+.authcard input { margin-bottom: 4px; }
+.link {
+  background: none; border: 0; color: #93c5fd; cursor: pointer;
+  font-size: 12px; padding: 6px 0; width: auto;
+}
+.link:hover { background: none; text-decoration: underline; }
+
+/* user + project bar */
+.userbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.email { font-size: 12px; color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projbar { margin-bottom: 12px; }
+.projbar > select {
+  width: 100%; padding: 7px; font-size: 13px; border-radius: 6px;
+  background: #0b1220; color: #e5e7eb; border: 1px solid #374151;
+}
+.projbtns { display: flex; gap: 4px; margin-top: 6px; }
+.projbtns button { margin-top: 0; font-size: 11px; padding: 6px 4px; }
+.curname { margin-top: 6px; font-size: 12px; color: #cbd5e1; }
+.curname i { color: #f59e0b; font-style: normal; }
+.flash {
+  margin-bottom: 10px; padding: 7px 10px; border-radius: 6px;
+  background: #065f46; color: #d1fae5; font-size: 12px;
+}
+
+/* manual add */
+.manual { margin-top: 14px; padding: 12px; border-radius: 8px; background: #1f2937; }
+.manual > strong { font-size: 13px; }
+.urlrow { display: flex; gap: 4px; margin-top: 8px; }
+.urlrow input { flex: 1; }
+.urlrow button { margin-top: 0; width: auto; padding: 6px 10px; font-size: 12px; }
+.manualform { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.manualform input { font-size: 11px; }
+.row2 { display: flex; gap: 6px; }
+.reftag { font-size: 11px; color: #93c5fd; }
+.reftag.mono { font-family: ui-monospace, monospace; word-break: break-all; color: #cbd5e1; }
+
+/* modals */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.modal {
+  background: #111827; border: 1px solid #1f2937; border-radius: 12px;
+  max-height: 88vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.modalhead {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid #1f2937;
+}
+.modalhead h2 { margin: 0; font-size: 16px; }
+.x { width: auto; margin: 0; padding: 0 8px; border: 0; background: none; color: #9ca3af; font-size: 20px; cursor: pointer; }
+.x:hover { background: none; color: #e5e7eb; }
+.modalbody { padding: 16px; }
+.modalbody label { color: #9ca3af; }
+.modalactions { display: flex; gap: 8px; margin-top: 14px; }
+.modalactions button { margin-top: 0; }
+.confirmmsg { font-size: 14px; color: #e5e7eb; margin: 0; }
+button.danger { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 600; }
+button.danger:hover { background: #dc2626; }
+
+/* marking block in node modal */
+.markbox { margin-top: 16px; padding-top: 14px; border-top: 1px solid #1f2937; }
+.markbox > strong { font-size: 13px; }
+.markbox input { margin-top: 8px; }
+.markbox select { flex: 1; padding: 6px; background: #0b1220; color: #e5e7eb; border: 1px solid #374151; border-radius: 5px; }
+
+/* load-transactions block in node modal */
+.loadtx { margin-top: 16px; padding-top: 14px; border-top: 1px solid #1f2937; }
+.loadtx > strong { font-size: 13px; }
+.ltrow { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.ltrow select { flex: 1; padding: 6px; background: #0b1220; color: #e5e7eb; border: 1px solid #374151; border-radius: 5px; }
+.ltchecks { display: flex; align-items: center; gap: 14px; margin-top: 10px; font-size: 13px; color: #cbd5e1; }
+.ltchecks label { display: flex; align-items: center; gap: 5px; color: #cbd5e1; }
+.ltchecks .lim { margin-left: auto; }
+.ltchecks .lim input { width: 56px; padding: 4px; background: #0b1220; color: #e5e7eb; border: 1px solid #374151; border-radius: 5px; }
+
+.canvas { flex: 1; position: relative; }
+.empty {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; color: #4b5563;
+}
