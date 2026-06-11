@@ -134,9 +134,13 @@ app.delete("/projects/:id", { preHandler: app.auth }, async (req, reply) => {
 // --- explorer enrichment ---------------------------------------------------
 app.get("/explorer/tx", { preHandler: app.auth }, async (req) => {
   const { network, hash } = req.query || {};
-  if (!network || !hash) return { data: null };
-  const data = await fetchTx(String(network).toUpperCase(), String(hash));
-  return { data };
+  if (!network || !hash) return { data: null, diag: null };
+  try {
+    const data = await fetchTx(String(network).toUpperCase(), String(hash));
+    return { data, diag: data ? null : `${network}: RPC вернул пустой ответ (tx не найдена или RPC недоступен)` };
+  } catch (e) {
+    return { data: null, diag: String(e?.message || e) };
+  }
 });
 
 app.get("/explorer/wallet", { preHandler: app.auth }, async (req) => {

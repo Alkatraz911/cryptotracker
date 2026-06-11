@@ -39,10 +39,15 @@ export interface ProjectMeta {
 export interface Project extends ProjectMeta {
   graph: BuiltGraph;
 }
+export interface TxTransfer {
+  from: string; to: string; amount: number; asset: string;
+}
+
 export interface TxData {
   network: string; hash: string;
   from: string | null; to: string | null;
   amount?: number; asset?: string;
+  transfers?: TxTransfer[];
 }
 
 export const store = {
@@ -80,11 +85,10 @@ export const store = {
   deleteProject: (id: string) =>
     req<{ ok: boolean }>(`/projects/${id}`, { method: "DELETE" }),
 
-  async explorerTx(network: string, hash: string): Promise<TxData | null> {
-    const r = await req<{ data: TxData | null }>(
+  async explorerTx(network: string, hash: string): Promise<{ data: TxData | null; diag: string | null }> {
+    return req<{ data: TxData | null; diag: string | null }>(
       `/explorer/tx?network=${encodeURIComponent(network)}&hash=${encodeURIComponent(hash)}`
     );
-    return r.data;
   },
 
   async walletTxs(

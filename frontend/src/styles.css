@@ -201,3 +201,22 @@ button.danger:hover { background: #dc2626; }
   position: absolute; inset: 0; display: flex;
   align-items: center; justify-content: center; color: #4b5563;
 }
+
+/* transfer picker (ManualAdd batch tx) */
+.transfer-picker { display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; margin-top: 2px; }
+.picker-header {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; color: #9ca3af; margin-bottom: 4px;
+}
+.trow {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 5px; cursor: pointer; user-select: none;
+  font-size: 11px; background: #111827; border: 1px solid #1f2937;
+  transition: border-color 0.1s;
+}
+.trow:hover { border-color: #374151; }
+.trow.sel { border-color: #2563eb; background: #0d1a33; }
+.trow input[type="checkbox"] { flex-shrink: 0; cursor: pointer; accent-color: #2563eb; }
+.taddr { font-family: ui-monospace, monospace; color: #cbd5e1; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarrow { color: #4b5563; flex-shrink: 0; }
+.tamt { color: #34d399; flex-shrink: 0; white-space: nowrap; }

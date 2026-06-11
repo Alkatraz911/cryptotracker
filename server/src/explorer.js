@@ -4,6 +4,49 @@
 
 const EVM_CHAINS = { ETH: 1, BSC: 56, POLYGON: 137, ARBITRUM: 42161, BASE: 8453 };
 const EVM_BASE = "https://api.etherscan.io/v2/api";
+// Public RPC fallback — no API key required (official / highly available endpoints)
+const PUBLIC_RPC = {
+  ETH:      "https://eth.llamarpc.com",
+  BSC:      "https://bsc-dataseed.binance.org",
+  POLYGON:  "https://polygon-rpc.com",
+  ARBITRUM: "https://arb1.arbitrum.io/rpc",
+  BASE:     "https://mainnet.base.org",
+};
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+async function rpcPost(rpc, method, params) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 12000);
+  try {
+    const r = await fetch(rpc, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: ac.signal,
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    return j.result ?? null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Decode ABI-encoded string returned by eth_call (handles both string and bytes32 encoding).
+function decodeAbiString(hex) {
+  if (!hex || hex === "0x") return null;
+  const h = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (h.length < 128) {
+    // bytes32 fallback (old tokens like MKR)
+    const s = Buffer.from(h.padEnd(64, "0"), "hex").toString("utf8").replace(/\0/g, "").trim();
+    return s.length && s.length <= 32 ? s : null;
+  }
+  const len = parseInt(h.slice(64, 128), 16);
+  if (!len || len > 200) return null;
+  try {
+    return Buffer.from(h.slice(128, 128 + len * 2), "hex").toString("utf8").replace(/\0/g, "").trim() || null;
+  } catch { return null; }
+}
 const TRON_BASE = "https://apilist.tronscanapi.com/api";
 const SOLSCAN_PUBLIC = "https://public-api.solscan.io";
 const SOLSCAN_PRO = "https://pro-api.solscan.io/v2.0";
@@ -32,25 +75,88 @@ async function fetchJsonRetry(url, tries = 4) {
   return last;
 }
 
+async function evmTxRpc(network, hash) {
+  const rpc = PUBLIC_RPC[network];
+  if (!rpc) return null;
+
+  let tx;
+  try {
+    tx = await rpcPost(rpc, "eth_getTransactionByHash", [hash]);
+  } catch (e) {
+    console.error(`[evmTxRpc] ${network} RPC (${rpc}) error: ${e?.message || e}`);
+    return null;
+  }
+  if (!tx || !tx.from) {
+    console.warn(`[evmTxRpc] ${network} tx not found: ${hash}`);
+    return null;
+  }
+
+  const nativeValue = BigInt(tx.value ?? "0x0");
+  if (nativeValue > 0n) {
+    return { network, hash, from: tx.from, to: tx.to, amount: Number(nativeValue) / 1e18, asset: nativeAsset(network) };
+  }
+
+  // Zero native value — collect all ERC-20 Transfer events from receipt
+  const receipt = await rpcPost(rpc, "eth_getTransactionReceipt", [hash]);
+  const transferLogs = (receipt?.logs ?? []).filter(
+    (l) => l.topics?.[0]?.toLowerCase() === TRANSFER_TOPIC && l.topics.length >= 3
+  );
+  if (!transferLogs.length) {
+    return { network, hash, from: tx.from, to: tx.to, amount: 0, asset: nativeAsset(network) };
+  }
+
+  // Fetch symbol + decimals for each unique token contract in parallel
+  const contracts = [...new Set(transferLogs.map((l) => l.address.toLowerCase()))];
+  const tokenInfo = {};
+  await Promise.all(contracts.map(async (addr) => {
+    const [symHex, decHex] = await Promise.all([
+      rpcPost(rpc, "eth_call", [{ to: addr, data: "0x95d89b41" }, "latest"]),
+      rpcPost(rpc, "eth_call", [{ to: addr, data: "0x313ce567" }, "latest"]),
+    ]);
+    const decVal = decHex ? parseInt(decHex.replace("0x", ""), 16) : NaN;
+    tokenInfo[addr] = {
+      symbol: decodeAbiString(symHex) || "TOKEN",
+      decimals: isNaN(decVal) ? 18 : decVal,
+    };
+  }));
+
+  const transfers = transferLogs.map((l) => {
+    const info = tokenInfo[l.address.toLowerCase()];
+    const raw = BigInt(l.data?.length > 2 ? l.data : "0x0");
+    return {
+      from: "0x" + l.topics[1].slice(-40),
+      to:   "0x" + l.topics[2].slice(-40),
+      amount: Number(raw) / 10 ** info.decimals,
+      asset: info.symbol,
+    };
+  });
+
+  const first = transfers[0];
+  return {
+    network, hash,
+    from: first.from, to: first.to, amount: first.amount, asset: first.asset,
+    ...(transfers.length > 1 && { transfers }),
+  };
+}
+
 async function evmTx(network, hash) {
   const chainid = EVM_CHAINS[network];
+  if (!chainid) return null;
   const KEY = evmKey();
-  if (!chainid || !KEY) return null;
-  const url =
-    `${EVM_BASE}?chainid=${chainid}&module=proxy&action=eth_getTransactionByHash` +
-    `&txhash=${hash}&apikey=${KEY}`;
-  const j = await fetchJsonRetry(url);
-  const t = j.result;
-  if (!t || !t.from) return null;
-  const wei = BigInt(t.value ?? "0x0");
-  return {
-    network,
-    hash,
-    from: t.from,
-    to: t.to,
-    amount: Number(wei) / 1e18,
-    asset: nativeAsset(network),
-  };
+  if (KEY) {
+    const url =
+      `${EVM_BASE}?chainid=${chainid}&module=proxy&action=eth_getTransactionByHash` +
+      `&txhash=${hash}&apikey=${KEY}`;
+    const j = await fetchJsonRetry(url);
+    const t = j.result;
+    if (t && t.from) {
+      const wei = BigInt(t.value ?? "0x0");
+      if (wei > 0n)
+        return { network, hash, from: t.from, to: t.to, amount: Number(wei) / 1e18, asset: nativeAsset(network) };
+      // Native value is 0 → fall through to RPC for token transfer data
+    }
+  }
+  return evmTxRpc(network, hash);
 }
 
 async function tronTx(hash) {
@@ -59,17 +165,32 @@ async function tronTx(hash) {
   const j = await r.json();
   if (!j || (!j.ownerAddress && !j.contractData)) return null;
   const cd = j.contractData ?? {};
-  const trc20 = (j.trc20TransferInfo && j.trc20TransferInfo[0]) || null;
+  const trc20s = j.trc20TransferInfo || [];
+
+  if (trc20s.length > 1) {
+    const transfers = trc20s.map((t) => ({
+      from: t.from_address,
+      to:   t.to_address,
+      amount: Number(t.amount_str) / 10 ** Number(t.decimals || 6),
+      asset: t.symbol || "TRC20",
+    }));
+    const first = transfers[0];
+    return {
+      network: "TRON", hash,
+      from: j.ownerAddress || first.from, to: first.to,
+      amount: first.amount, asset: first.asset,
+      transfers,
+    };
+  }
+
+  const trc20 = trc20s[0] || null;
   return {
-    network: "TRON",
-    hash,
+    network: "TRON", hash,
     from: j.ownerAddress || cd.owner_address || trc20?.from_address || null,
     to: j.toAddress || cd.to_address || trc20?.to_address || null,
     amount: trc20
       ? Number(trc20.amount_str) / 10 ** Number(trc20.decimals || 6)
-      : cd.amount
-      ? Number(cd.amount) / 1e6
-      : undefined,
+      : cd.amount ? Number(cd.amount) / 1e6 : undefined,
     asset: trc20?.symbol || "TRX",
   };
 }
@@ -114,7 +235,8 @@ export async function fetchTx(network, hash) {
     if (network === "TRON") return await tronTx(hash);
     if (network === "SOLANA") return await solanaTx(hash);
     return await evmTx(network, hash);
-  } catch {
+  } catch (e) {
+    console.error(`[fetchTx] ${network} ${hash}: ${e?.message || e}`);
     return null;
   }
 }
