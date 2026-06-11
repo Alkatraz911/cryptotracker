@@ -91,6 +91,12 @@ export const store = {
     );
   },
 
+  async addressLabel(network: string, address: string): Promise<{ label: string | null }> {
+    return req<{ label: string | null }>(
+      `/explorer/label?network=${encodeURIComponent(network)}&address=${encodeURIComponent(address)}`
+    );
+  },
+
   async walletTxs(
     network: string,
     address: string,

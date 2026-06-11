@@ -2,6 +2,37 @@
 // Best-effort: returns null on any failure so the client can fall back to
 // the values parsed from the URL.
 
+// OKX Explorer embeds address entity tags as JSON state in the SSR HTML —
+// no Cloudflare protection, accessible with a plain fetch().
+// Chain slugs used in OKX Explorer URLs:
+const OKX_CHAINS = {
+  ETH: "eth", BSC: "bsc", POLYGON: "polygon",
+  ARBITRUM: "arbitrum-one", BASE: "base",
+};
+
+async function fetchExplorerHtmlLabel(network, address) {
+  const chain = OKX_CHAINS[network];
+  if (!chain) return null;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 12000);
+  try {
+    const r = await fetch(`https://web3.okx.com/explorer/${chain}/address/${address}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      signal: ac.signal,
+    });
+    if (!r.ok) return null;
+    const html = await r.text();
+    // OKX embeds state JSON in the page; hoverEntityTag is the full display label
+    // e.g. "Bridge: deBridge DLN" or "Exchange: Binance"
+    const m1 = html.match(/"hoverEntityTag"\s*:\s*"([^"]{2,100})"/);
+    if (m1?.[1]) return m1[1];
+    const m2 = html.match(/"entityTag"\s*:\s*"([^"]{2,100})"/);
+    if (m2?.[1]) return m2[1];
+    return null;
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
 const EVM_CHAINS = { ETH: 1, BSC: 56, POLYGON: 137, ARBITRUM: 42161, BASE: 8453 };
 const EVM_BASE = "https://api.etherscan.io/v2/api";
 // Public RPC fallback — no API key required (official / highly available endpoints)
@@ -92,71 +123,74 @@ async function evmTxRpc(network, hash) {
   }
 
   const nativeValue = BigInt(tx.value ?? "0x0");
-  if (nativeValue > 0n) {
-    return { network, hash, from: tx.from, to: tx.to, amount: Number(nativeValue) / 1e18, asset: nativeAsset(network) };
-  }
 
-  // Zero native value — collect all ERC-20 Transfer events from receipt
-  const receipt = await rpcPost(rpc, "eth_getTransactionReceipt", [hash]);
+  // Always fetch receipt — need ERC-20 logs even when native value > 0
+  const receipt = await rpcPost(rpc, "eth_getTransactionReceipt", [hash]).catch(() => null);
   const transferLogs = (receipt?.logs ?? []).filter(
     (l) => l.topics?.[0]?.toLowerCase() === TRANSFER_TOPIC && l.topics.length >= 3
   );
-  if (!transferLogs.length) {
+
+  const all = [];
+
+  // Native transfer (if any value was moved)
+  if (nativeValue > 0n) {
+    all.push({ from: tx.from, to: tx.to, amount: Number(nativeValue) / 1e18, asset: nativeAsset(network) });
+  }
+
+  // ERC-20 transfers from receipt logs
+  if (transferLogs.length > 0) {
+    const contracts = [...new Set(transferLogs.map((l) => l.address.toLowerCase()))];
+    const tokenInfo = {};
+    await Promise.all(contracts.map(async (addr) => {
+      const [symHex, decHex] = await Promise.all([
+        rpcPost(rpc, "eth_call", [{ to: addr, data: "0x95d89b41" }, "latest"]).catch(() => null),
+        rpcPost(rpc, "eth_call", [{ to: addr, data: "0x313ce567" }, "latest"]).catch(() => null),
+      ]);
+      const decVal = decHex ? parseInt(decHex.replace("0x", ""), 16) : NaN;
+      tokenInfo[addr] = { symbol: decodeAbiString(symHex) || "TOKEN", decimals: isNaN(decVal) ? 18 : decVal };
+    }));
+
+    for (const l of transferLogs) {
+      const info = tokenInfo[l.address.toLowerCase()];
+      const raw = BigInt(l.data?.length > 2 ? l.data : "0x0");
+      all.push({
+        from: "0x" + l.topics[1].slice(-40),
+        to:   "0x" + l.topics[2].slice(-40),
+        amount: Number(raw) / 10 ** info.decimals,
+        asset: info.symbol,
+      });
+    }
+  }
+
+  if (!all.length) {
     return { network, hash, from: tx.from, to: tx.to, amount: 0, asset: nativeAsset(network) };
   }
 
-  // Fetch symbol + decimals for each unique token contract in parallel
-  const contracts = [...new Set(transferLogs.map((l) => l.address.toLowerCase()))];
-  const tokenInfo = {};
-  await Promise.all(contracts.map(async (addr) => {
-    const [symHex, decHex] = await Promise.all([
-      rpcPost(rpc, "eth_call", [{ to: addr, data: "0x95d89b41" }, "latest"]),
-      rpcPost(rpc, "eth_call", [{ to: addr, data: "0x313ce567" }, "latest"]),
-    ]);
-    const decVal = decHex ? parseInt(decHex.replace("0x", ""), 16) : NaN;
-    tokenInfo[addr] = {
-      symbol: decodeAbiString(symHex) || "TOKEN",
-      decimals: isNaN(decVal) ? 18 : decVal,
-    };
-  }));
-
-  const transfers = transferLogs.map((l) => {
-    const info = tokenInfo[l.address.toLowerCase()];
-    const raw = BigInt(l.data?.length > 2 ? l.data : "0x0");
-    return {
-      from: "0x" + l.topics[1].slice(-40),
-      to:   "0x" + l.topics[2].slice(-40),
-      amount: Number(raw) / 10 ** info.decimals,
-      asset: info.symbol,
-    };
-  });
-
-  const first = transfers[0];
+  const first = all[0];
   return {
     network, hash,
     from: first.from, to: first.to, amount: first.amount, asset: first.asset,
-    ...(transfers.length > 1 && { transfers }),
+    ...(all.length > 1 && { transfers: all }),
   };
 }
 
 async function evmTx(network, hash) {
   const chainid = EVM_CHAINS[network];
   if (!chainid) return null;
+  // RPC is the primary path — returns native + all token transfers
+  const result = await evmTxRpc(network, hash);
+  if (result) return result;
+  // RPC failed — Etherscan fallback (native value only, no token data)
   const KEY = evmKey();
-  if (KEY) {
-    const url =
-      `${EVM_BASE}?chainid=${chainid}&module=proxy&action=eth_getTransactionByHash` +
-      `&txhash=${hash}&apikey=${KEY}`;
+  if (!KEY) return null;
+  try {
+    const url = `${EVM_BASE}?chainid=${chainid}&module=proxy&action=eth_getTransactionByHash&txhash=${hash}&apikey=${KEY}`;
     const j = await fetchJsonRetry(url);
     const t = j.result;
-    if (t && t.from) {
-      const wei = BigInt(t.value ?? "0x0");
-      if (wei > 0n)
-        return { network, hash, from: t.from, to: t.to, amount: Number(wei) / 1e18, asset: nativeAsset(network) };
-      // Native value is 0 → fall through to RPC for token transfer data
-    }
-  }
-  return evmTxRpc(network, hash);
+    if (!t || !t.from) return null;
+    const wei = BigInt(t.value ?? "0x0");
+    return { network, hash, from: t.from, to: t.to, amount: Number(wei) / 1e18, asset: nativeAsset(network) };
+  } catch { return null; }
 }
 
 async function tronTx(hash) {
@@ -239,6 +273,96 @@ export async function fetchTx(network, hash) {
     console.error(`[fetchTx] ${network} ${hash}: ${e?.message || e}`);
     return null;
   }
+}
+
+// --- address label lookup --------------------------------------------------
+
+// Generic proxy pattern names that should never be returned as a final label —
+// they describe the proxy infrastructure, not what the contract actually does.
+const GENERIC_PROXY_NAMES = new Set([
+  "TransparentUpgradeableProxy", "ERC1967Proxy", "BeaconProxy", "Proxy",
+  "AdminUpgradeabilityProxy", "UpgradeableProxy", "InitializableAdminUpgradeabilityProxy",
+  "UUPSUpgradeable", "TransparentProxy",
+]);
+
+// EIP-1967 implementation storage slot (standard across OZ TransparentUpgradeableProxy, UUPS, etc.)
+const EIP1967_IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+export async function fetchAddressLabel(network, address) {
+  try {
+    const chainid = EVM_CHAINS[network];
+    if (chainid) {
+      const KEY = evmKey();
+      const rpc = PUBLIC_RPC[network];
+
+      // Run headless browser scrape + Etherscan API lookup in parallel.
+      // The browser scrape gets the exact curated name tag displayed on the explorer page.
+      const [htmlLabel, apiLabel] = await Promise.all([
+        fetchExplorerHtmlLabel(network, address).catch(() => null),
+        (async () => {
+          if (!KEY) return null;
+
+          // Etherscan Pro name tag
+          const tj = await fetchJsonRetry(
+            `${EVM_BASE}?chainid=${chainid}&module=account&action=addresslabel&address=${address}&apikey=${KEY}`
+          );
+          if (tj.status === "1" && tj.result?.label) return tj.result.label;
+
+          // Verified contract source name (skip generic proxy pattern names)
+          const sj = await fetchJsonRetry(
+            `${EVM_BASE}?chainid=${chainid}&module=contract&action=getsourcecode&address=${address}&apikey=${KEY}`
+          );
+          const cname = sj.result?.[0]?.ContractName;
+          if (cname && cname.length > 0 && cname !== "0x") {
+            if (!GENERIC_PROXY_NAMES.has(cname)) return cname;
+
+            // For proxy contracts: read EIP-1967 impl slot and use the impl's contract name
+            if (rpc) {
+              const slotVal = await rpcPost(rpc, "eth_getStorageAt", [address, EIP1967_IMPL_SLOT, "latest"]).catch(() => null);
+              if (slotVal && !/^0x0*$/.test(slotVal)) {
+                const implAddr = "0x" + slotVal.slice(-40);
+                const implSrc = await fetchJsonRetry(
+                  `${EVM_BASE}?chainid=${chainid}&module=contract&action=getsourcecode&address=${implAddr}&apikey=${KEY}`
+                ).catch(() => null);
+                const implName = implSrc?.result?.[0]?.ContractName;
+                if (implName && implName.length > 0 && !GENERIC_PROXY_NAMES.has(implName)) return implName;
+              }
+            }
+          }
+          return null;
+        })().catch(() => null),
+      ]);
+
+      // HTML scrape gives the exact displayed label; API is fallback
+      const evmLabel = htmlLabel || apiLabel;
+      if (evmLabel) return { label: evmLabel };
+
+      // RPC name() — catches ERC-20 / ERC-721 tokens (no key required)
+      if (rpc) {
+        const nameHex = await rpcPost(rpc, "eth_call", [{ to: address, data: "0x06fdde03" }, "latest"]).catch(() => null);
+        const name = nameHex ? decodeAbiString(nameHex) : null;
+        if (name) return { label: name };
+      }
+    }
+
+    if (network === "TRON") {
+      const headers = tronKey() ? { "TRON-PRO-API-KEY": tronKey() } : {};
+      const r = await fetch(`${TRON_BASE}/account?address=${address}`, { headers });
+      const j = await r.json();
+      if (j.name) return { label: j.name };
+    }
+
+    if (network === "SOLANA") {
+      const KEY = solscanKey();
+      if (KEY) {
+        const r = await fetch(`${SOLSCAN_PRO}/account/${address}`, { headers: { token: KEY } });
+        const j = await r.json();
+        const lbl = j.data?.label || j.data?.account_label?.label;
+        if (lbl) return { label: lbl };
+      }
+    }
+  } catch { /* best-effort */ }
+  return { label: null };
 }
 
 // --- wallet transfer history (native + token) ------------------------------

@@ -202,6 +202,21 @@ button.danger:hover { background: #dc2626; }
   align-items: center; justify-content: center; color: #4b5563;
 }
 
+/* entity label block in node modal */
+.labelbox { margin-top: 14px; padding-top: 12px; border-top: 1px solid #1f2937; }
+.labelbox button { margin-top: 0; }
+.labelbox-found { display: flex; align-items: center; gap: 8px; }
+.labelbox-found .dk { font-size: 11px; color: #9ca3af; flex-shrink: 0; }
+.labelbox-found .link { width: auto; margin: 0; padding: 0 4px; border: 0; font-size: 14px; color: #4b5563; }
+.entity-name { color: #34d399; font-size: 12px; font-weight: 600; flex: 1; word-break: break-word; }
+
+/* delete block in node modal */
+.delbox { margin-top: 16px; padding-top: 14px; border-top: 1px solid #1f2937; }
+.delbox button { margin-top: 0; }
+.delconfirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.delconfirm span { font-size: 12px; color: #fca5a5; flex: 1; min-width: 120px; }
+.delconfirm button { margin-top: 0; width: auto; padding: 6px 14px; font-size: 12px; }
+
 /* transfer picker (ManualAdd batch tx) */
 .transfer-picker { display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; margin-top: 2px; }
 .picker-header {

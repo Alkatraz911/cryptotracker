@@ -12,6 +12,7 @@ export default function DetailsPanel({ node }: { node: GNode | null }) {
         {tag && <span className="badge" style={{ background: tag.color }}>⚑ {tag.label}</span>}
       </div>
 
+      {node.entityName && <Row k="Entity" v={node.entityName} highlight />}
       {node.note && <Row k="Метка" v={node.note} />}
 
       {node.address && <Row k="Address" v={node.address} mono />}
@@ -31,11 +32,11 @@ export default function DetailsPanel({ node }: { node: GNode | null }) {
   );
 }
 
-function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
+function Row({ k, v, mono, highlight }: { k: string; v: string; mono?: boolean; highlight?: boolean }) {
   return (
     <div className="drow">
       <span className="dk">{k}</span>
-      <span className={mono ? "dv mono" : "dv"}>{v}</span>
+      <span className={[mono ? "mono" : "", highlight ? "entity-name" : "", "dv"].filter(Boolean).join(" ")}>{v}</span>
     </div>
   );
 }

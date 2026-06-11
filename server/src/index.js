@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 
 import { createStorage } from "./storage/index.js";
-import { fetchTx, fetchWalletTransfers } from "./explorer.js";
+import { fetchTx, fetchWalletTransfers, fetchAddressLabel } from "./explorer.js";
 
 const storage = await createStorage();
 console.log(`[explorer] ETHERSCAN_API_KEY: ${process.env.ETHERSCAN_API_KEY ? "set" : "MISSING — EVM wallet history will be empty"}`);
@@ -141,6 +141,12 @@ app.get("/explorer/tx", { preHandler: app.auth }, async (req) => {
   } catch (e) {
     return { data: null, diag: String(e?.message || e) };
   }
+});
+
+app.get("/explorer/label", { preHandler: app.auth }, async (req) => {
+  const { network, address } = req.query || {};
+  if (!network || !address) return { label: null };
+  return fetchAddressLabel(String(network).toUpperCase(), String(address));
 });
 
 app.get("/explorer/wallet", { preHandler: app.auth }, async (req) => {

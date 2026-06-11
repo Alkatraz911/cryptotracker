@@ -8,7 +8,7 @@ import PromptModal from "./components/PromptModal";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import { store, type ProjectMeta, type User } from "./lib/store";
-import { emptyGraph, finalize, mergeGraphs } from "./lib/graphMerge";
+import { emptyGraph, finalize, mergeGraphs, removeNodes } from "./lib/graphMerge";
 import type { BuiltGraph, GNode } from "./lib/graph";
 
 type PromptCfg = {
@@ -167,6 +167,26 @@ export default function App() {
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(null), 2500); }
 
+  function labelNode(id: string, entityName: string) {
+    setGraph((g) => ({
+      ...g,
+      nodes: g.nodes.map((n) => {
+        if (n.id !== id || !n.address) return n;
+        const short = `${n.address.slice(0, 6)}…${n.address.slice(-4)}`;
+        const name = entityName.length > 30 ? entityName.slice(0, 28) + "…" : entityName;
+        return { ...n, entityName, label: `${name}\n${short} [${n.net}]` };
+      }),
+    }));
+    setModalNode((mn) => (mn?.id === id ? { ...mn, entityName } : mn));
+    setDirty(true);
+  }
+
+  function removeNode(id: string) {
+    setGraph((g) => removeNodes(g, new Set([id])));
+    setModalNode(null);
+    setDirty(true);
+  }
+
   // apply a manual marker to a node
   function markNode(id: string, patch: { tag?: string; note?: string }) {
     setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
@@ -297,7 +317,9 @@ export default function App() {
       {modalNode && (
         <NodeModal node={modalNode} onClose={() => setModalNode(null)}
           onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
-          onMark={markNode} />
+          onMark={markNode}
+          onRemove={removeNode}
+          onLabel={labelNode} />
       )}
       {unsaved && (
         <Modal title="Несохранённые изменения" onClose={() => setUnsaved(null)}>

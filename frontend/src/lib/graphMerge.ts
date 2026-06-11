@@ -16,6 +16,12 @@ export function finalize(nodes: GNode[], edges: GEdge[], warnings: string[] = []
   return { nodes, edges, warnings, counts: countKinds(nodes), linked: deriveLinked(nodes, edges) };
 }
 
+export function removeNodes(graph: BuiltGraph, ids: Set<string>): BuiltGraph {
+  const nodes = graph.nodes.filter((n) => !ids.has(n.id));
+  const edges = graph.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target));
+  return finalize(nodes, edges, graph.warnings);
+}
+
 export function mergeGraphs(a: BuiltGraph, b: BuiltGraph): BuiltGraph {
   const nodes = new Map<string, GNode>();
   for (const n of a.nodes) nodes.set(n.id, { ...n });

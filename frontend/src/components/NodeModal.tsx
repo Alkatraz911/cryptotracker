@@ -12,12 +12,31 @@ interface Props {
   onClose: () => void;
   onAdd: (sub: { nodes: GNode[]; edges: GEdge[] }) => void;
   onMark: (id: string, patch: { tag?: string; note?: string }) => void;
+  onRemove: (id: string) => void;
+  onLabel: (id: string, entityName: string) => void;
 }
 
-export default function NodeModal({ node, onClose, onAdd, onMark }: Props) {
+export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLabel }: Props) {
   const [tag, setTag] = useState(node.tag ?? "");
   const [note, setNote] = useState(node.note ?? "");
   const [marked, setMarked] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelErr, setLabelErr] = useState<string | null>(null);
+
+  async function fetchLabel() {
+    if (!node.address || !node.net || node.net === "UNKNOWN") return;
+    setLabelBusy(true); setLabelErr(null);
+    try {
+      const { label } = await store.addressLabel(node.net, node.address);
+      if (label) onLabel(node.id, label);
+      else setLabelErr("Метка не найдена для этого адреса.");
+    } catch (e: any) {
+      setLabelErr(e.message ?? "Ошибка запроса");
+    } finally {
+      setLabelBusy(false);
+    }
+  }
 
   function saveMark() {
     onMark(node.id, { tag: tag || undefined, note: note.trim() || undefined });
@@ -58,6 +77,25 @@ export default function NodeModal({ node, onClose, onAdd, onMark }: Props) {
   return (
     <Modal title="Узел" onClose={onClose} width={420}>
       <DetailsPanel node={node} />
+
+      {isWallet && (
+        <div className="labelbox">
+          {node.entityName ? (
+            <div className="labelbox-found">
+              <span className="dk">Entity</span>
+              <span className="entity-name">{node.entityName}</span>
+              <button className="link" onClick={fetchLabel} disabled={labelBusy} title="Обновить">↺</button>
+            </div>
+          ) : (
+            <>
+              <button onClick={fetchLabel} disabled={labelBusy}>
+                {labelBusy ? "Загрузка…" : "Получить метку из эксплорера"}
+              </button>
+              {labelErr && <div className="muted">{labelErr}</div>}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="markbox">
         <strong>Маркировка</strong>
@@ -102,6 +140,17 @@ export default function NodeModal({ node, onClose, onAdd, onMark }: Props) {
           </p>
         </div>
       )}
+      <div className="delbox">
+        {confirmDel ? (
+          <div className="delconfirm">
+            <span>Удалить узел и все его связи?</span>
+            <button className="danger" onClick={() => { onRemove(node.id); onClose(); }}>Удалить</button>
+            <button onClick={() => setConfirmDel(false)}>Отмена</button>
+          </div>
+        ) : (
+          <button className="danger" onClick={() => setConfirmDel(true)}>Удалить из графа</button>
+        )}
+      </div>
     </Modal>
   );
 }
