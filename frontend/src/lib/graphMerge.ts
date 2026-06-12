@@ -18,7 +18,8 @@ export function finalize(nodes: GNode[], edges: GEdge[], warnings: string[] = []
 
 export function removeNodes(graph: BuiltGraph, ids: Set<string>): BuiltGraph {
   const nodes = graph.nodes.filter((n) => !ids.has(n.id));
-  const edges = graph.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target));
+  const remaining = new Set(nodes.map((n) => n.id));
+  const edges = graph.edges.filter((e) => remaining.has(e.source) && remaining.has(e.target));
   return finalize(nodes, edges, graph.warnings);
 }
 

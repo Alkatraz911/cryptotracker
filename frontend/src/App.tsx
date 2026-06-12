@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Auth from "./components/Auth";
 import DataLoader from "./components/DataLoader";
 import GraphView from "./components/GraphView";
@@ -10,6 +10,7 @@ import Modal from "./components/Modal";
 import { store, type ProjectMeta, type User } from "./lib/store";
 import { emptyGraph, finalize, mergeGraphs, removeNodes } from "./lib/graphMerge";
 import type { BuiltGraph, GNode } from "./lib/graph";
+import { addressUrl, networkColor, type Network } from "./lib/explorers";
 
 type PromptCfg = {
   title: string; label?: string; defaultValue?: string; confirmText?: string;
@@ -28,6 +29,7 @@ export default function App() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [graph, setGraph] = useState<BuiltGraph>(emptyGraph());
+  const [prevGraph, setPrevGraph] = useState<BuiltGraph | null>(null);
   const [dirty, setDirty] = useState(false);
 
   const [modalNode, setModalNode] = useState<GNode | null>(null);
@@ -36,6 +38,40 @@ export default function App() {
   const [confirm, setConfirm] = useState<ConfirmCfg | null>(null);
   const [unsaved, setUnsaved] = useState<{ proceed: () => void } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [layoutKey, setLayoutKey] = useState(0);
+
+  // Track which wallet IDs we've already initiated label fetches for so we
+  // never double-fetch within a session, even when graph state re-renders.
+  const fetchingIds = useRef(new Set<string>());
+
+  const nodeKey = useMemo(
+    () => graph.nodes.map((n) => n.id).sort().join(","),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [graph.nodes.length, graph.nodes.map((n) => n.id).join("|")]
+  );
+
+  // Auto-fetch entity labels for newly added wallet nodes.
+  useEffect(() => {
+    if (!user) return;
+    const candidates = graph.nodes.filter(
+      (n) =>
+        n.kind === "Wallet" &&
+        n.address &&
+        n.net &&
+        n.net !== "UNKNOWN" &&
+        !n.entityName &&
+        !fetchingIds.current.has(n.id)
+    );
+    if (!candidates.length) return;
+    for (const n of candidates) {
+      fetchingIds.current.add(n.id);
+      store.addressLabel(n.net!, n.address!).then(({ label }) => {
+        if (label) labelNode(n.id, label);
+      }).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeKey, user]);
 
   const DRAFT_KEY = "ct_draft";
 
@@ -112,18 +148,27 @@ export default function App() {
 
   async function loadProjects() { setProjects(await store.listProjects()); }
 
-  function applyGraph(g: BuiltGraph) { setGraph(g); setDirty(true); }
+  function applyGraph(g: BuiltGraph) { setPrevGraph(graph); setGraph(g); setDirty(true); }
+
+  function undoLastImport() {
+    if (!prevGraph) return;
+    setGraph(prevGraph);
+    setPrevGraph(null);
+    setDirty(true);
+  }
 
   function newProject() {
+    fetchingIds.current = new Set();
     setCurrentId(null); setName(""); setGraph(emptyGraph());
-    setModalNode(null); setFocusId(null); setDirty(false);
+    setPrevGraph(null); setModalNode(null); setFocusId(null); setDirty(false);
   }
 
   async function openProject(id: string) {
+    fetchingIds.current = new Set();
     const p = await store.getProject(id);
     setCurrentId(p.id); setName(p.name);
     setGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? []));
-    setModalNode(null); setFocusId(null); setDirty(false);
+    setPrevGraph(null); setModalNode(null); setFocusId(null); setDirty(false);
   }
 
   function saveProject() {
@@ -184,6 +229,31 @@ export default function App() {
   function removeNode(id: string) {
     setGraph((g) => removeNodes(g, new Set([id])));
     setModalNode(null);
+    setDirty(true);
+  }
+
+  function setNetNode(id: string, net: Network) {
+    const update = (n: GNode): GNode => {
+      if (n.id !== id || !n.address) return n;
+      const short = `${n.address.slice(0, 6)}…${n.address.slice(-4)}`;
+      const label = n.entityName
+        ? `${n.entityName.length > 30 ? n.entityName.slice(0, 28) + "…" : n.entityName}\n${short} [${net}]`
+        : `${short}\n[${net}]`;
+      return { ...n, net, color: networkColor(net), explorerUrl: addressUrl(net, n.address), label };
+    };
+    setGraph((g) => ({ ...g, nodes: g.nodes.map(update) }));
+    setModalNode((mn) => (mn?.id === id ? update(mn) : mn));
+    setDirty(true);
+  }
+
+  function savePositions(pos: Record<string, { x: number; y: number }>) {
+    setGraph((g) => ({
+      ...g,
+      nodes: g.nodes.map((n) => {
+        const p = pos[n.id];
+        return p ? { ...n, x: p.x, y: p.y } : n;
+      }),
+    }));
     setDirty(true);
   }
 
@@ -261,8 +331,16 @@ export default function App() {
 
         {msg && <div className="flash">{msg}</div>}
 
-        <DataLoader onBuild={(g) => applyGraph(mergeGraphs(graph, g))} />
+        <button className="filebtn" style={{ marginTop: 10 }} onClick={() => setImportOpen(true)}>
+          ↑ Импорт CSV / XLSX
+        </button>
         <ManualAdd onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))} />
+
+        {prevGraph && (
+          <button onClick={undoLastImport} style={{ marginTop: 6 }}>
+            ↩ Отменить последнюю загрузку
+          </button>
+        )}
 
         {has && (
           <>
@@ -307,10 +385,19 @@ export default function App() {
       </aside>
 
       <main className="canvas">
+        {has && (
+          <button className="relayout-btn" onClick={() => setLayoutKey((k) => k + 1)} title="Перераспределить узлы">↺</button>
+        )}
         {!has ? (
           <div className="empty">Загрузите CSV/XLSX или добавьте кошелёк/транзакцию по ссылке</div>
         ) : (
-          <GraphView graph={graph} onSelect={(n) => setModalNode(n)} focusId={focusId} />
+          <GraphView
+            graph={graph}
+            onSelect={(n) => setModalNode(n)}
+            focusId={focusId}
+            onPositionsSave={savePositions}
+            layoutKey={layoutKey}
+          />
         )}
       </main>
 
@@ -319,7 +406,13 @@ export default function App() {
           onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
           onMark={markNode}
           onRemove={removeNode}
-          onLabel={labelNode} />
+          onLabel={labelNode}
+          onSetNet={setNetNode} />
+      )}
+      {importOpen && (
+        <Modal title="Импорт CSV / XLSX" onClose={() => setImportOpen(false)} width={560}>
+          <DataLoader onBuild={(g) => { applyGraph(mergeGraphs(graph, g)); setImportOpen(false); }} />
+        </Modal>
       )}
       {unsaved && (
         <Modal title="Несохранённые изменения" onClose={() => setUnsaved(null)}>

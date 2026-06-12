@@ -1,7 +1,8 @@
 import { useState } from "react";
 import Modal from "./Modal";
+import TransferPreviewModal from "./TransferPreviewModal";
 import DetailsPanel from "./DetailsPanel";
-import { store } from "../lib/store";
+import { store, type Transfer } from "../lib/store";
 import { transfersSubgraph } from "../lib/graphMerge";
 import { ALL_NETWORKS, type Network } from "../lib/explorers";
 import { TAGS } from "../lib/tags";
@@ -14,15 +15,19 @@ interface Props {
   onMark: (id: string, patch: { tag?: string; note?: string }) => void;
   onRemove: (id: string) => void;
   onLabel: (id: string, entityName: string) => void;
+  onSetNet: (id: string, net: Network) => void;
 }
 
-export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLabel }: Props) {
+export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLabel, onSetNet }: Props) {
   const [tag, setTag] = useState(node.tag ?? "");
   const [note, setNote] = useState(node.note ?? "");
   const [marked, setMarked] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelErr, setLabelErr] = useState<string | null>(null);
+  const [netEdit, setNetEdit] = useState<Network>(
+    node.net && node.net !== "UNKNOWN" ? node.net : "ETH"
+  );
 
   async function fetchLabel() {
     if (!node.address || !node.net || node.net === "UNKNOWN") return;
@@ -54,8 +59,9 @@ export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLa
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<Transfer[] | null>(null);
 
-  async function load() {
+  async function loadForPreview() {
     if (!node.address) return;
     if (!native && !token) { setErr("Выберите нативные и/или токен-транзакции"); return; }
     setErr(null); setResult(null); setBusy(true);
@@ -65,8 +71,7 @@ export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLa
         setResult(diag ? `Эксплорер: ${diag}` : "Транзакций не найдено для этого адреса в выбранной сети.");
         return;
       }
-      onAdd(transfersSubgraph(transfers));
-      setResult(`Добавлено переводов: ${transfers.length}`);
+      setPreview(transfers);
     } catch (e: any) {
       setErr(e.message ?? String(e));
     } finally {
@@ -75,8 +80,29 @@ export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLa
   }
 
   return (
+    <>
     <Modal title="Узел" onClose={onClose} width={420}>
       <DetailsPanel node={node} />
+
+      {isWallet && (
+        <div className={`netbox${node.net === "UNKNOWN" ? " netbox-warn" : ""}`}>
+          <strong>Сеть {node.net === "UNKNOWN" && <span className="net-unknown-badge">не определена</span>}</strong>
+          <div className="ltrow">
+            <select value={netEdit} onChange={(e) => setNetEdit(e.target.value as Network)}>
+              {ALL_NETWORKS.filter((n) => n !== "UNKNOWN").map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <button
+              style={{ marginTop: 0, width: "auto", padding: "6px 12px" }}
+              disabled={netEdit === node.net}
+              onClick={() => onSetNet(node.id, netEdit)}
+            >
+              Применить
+            </button>
+          </div>
+        </div>
+      )}
 
       {isWallet && (
         <div className="labelbox">
@@ -132,8 +158,8 @@ export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLa
           {err && <div className="error">{err}</div>}
           {result && <div className="flash">{result}</div>}
 
-          <button className="primary" onClick={load} disabled={busy}>
-            {busy ? "Загрузка…" : "Загрузить и добавить в граф"}
+          <button className="primary" onClick={loadForPreview} disabled={busy}>
+            {busy ? "Загрузка…" : "Загрузить для предпросмотра"}
           </button>
           <p className="muted">
             Для EVM-сетей нужен ETHERSCAN_API_KEY на сервере; TRON работает без ключа.
@@ -152,5 +178,13 @@ export default function NodeModal({ node, onClose, onAdd, onMark, onRemove, onLa
         )}
       </div>
     </Modal>
+    {preview && (
+      <TransferPreviewModal
+        transfers={preview}
+        onAdd={(sel) => { onAdd(transfersSubgraph(sel)); setResult(`Добавлено переводов: ${sel.length}`); }}
+        onClose={() => setPreview(null)}
+      />
+    )}
+    </>
   );
 }

@@ -25,6 +25,8 @@ export interface GNode {
   explorerUrl?: string | null;
   color: string;
   degree: number;
+  x?: number; // saved canvas position
+  y?: number;
   entityName?: string; // label pulled from explorer (contract name / token name / name tag)
   tag?: string; // manual marker category id (see lib/tags.ts)
   note?: string; // free-text marker / annotation
