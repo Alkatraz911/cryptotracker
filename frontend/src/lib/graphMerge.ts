@@ -2,7 +2,7 @@
 // then recompute counts + linked accounts.
 import {
   addWalletNet, countKinds, deriveLinked, kindColor, walletLabel,
-  type BuiltGraph, type GEdge, type GNode,
+  type BuiltGraph, type GAnnotation, type GEdge, type GNode,
 } from "./graph";
 import {
   addressUrl, networkColor, txUrl, walletNodeId, type Network,
@@ -10,18 +10,56 @@ import {
 import type { OrbiterHop } from "./store";
 
 export function emptyGraph(): BuiltGraph {
-  return { nodes: [], edges: [], linked: [], warnings: [], counts: countKinds([]) };
+  return { nodes: [], edges: [], linked: [], warnings: [], counts: countKinds([]), annotations: [] };
 }
 
-export function finalize(nodes: GNode[], edges: GEdge[], warnings: string[] = []): BuiltGraph {
-  return { nodes, edges, warnings, counts: countKinds(nodes), linked: deriveLinked(nodes, edges) };
+export function finalize(
+  nodes: GNode[], edges: GEdge[], warnings: string[] = [], annotations: GAnnotation[] = [],
+): BuiltGraph {
+  return { nodes, edges, warnings, counts: countKinds(nodes), linked: deriveLinked(nodes, edges), annotations };
+}
+
+// Drop node references that no longer exist; discard annotations left empty.
+export function pruneAnnotations(annotations: GAnnotation[] | undefined, keepIds: Set<string>): GAnnotation[] {
+  return (annotations ?? [])
+    .map((a) => ({ ...a, nodeIds: a.nodeIds.filter((id) => keepIds.has(id)) }))
+    .filter((a) => a.nodeIds.length > 0);
 }
 
 export function removeNodes(graph: BuiltGraph, ids: Set<string>): BuiltGraph {
   const nodes = graph.nodes.filter((n) => !ids.has(n.id));
   const remaining = new Set(nodes.map((n) => n.id));
   const edges = graph.edges.filter((e) => remaining.has(e.source) && remaining.has(e.target));
-  return finalize(nodes, edges, graph.warnings);
+  return finalize(nodes, edges, graph.warnings, pruneAnnotations(graph.annotations, remaining));
+}
+
+// ── Case annotations (Phase 4) ─────────────────────────────────────────────
+// These edit the annotations layer without touching nodes/edges (so counts and
+// linked pairs are preserved) — the caller commits the returned graph for undo.
+export function annotationsForNode(graph: BuiltGraph, nodeId: string): GAnnotation[] {
+  return (graph.annotations ?? []).filter((a) => a.nodeIds.includes(nodeId));
+}
+
+export function upsertAnnotation(graph: BuiltGraph, ann: GAnnotation): BuiltGraph {
+  const rest = (graph.annotations ?? []).filter((a) => a.id !== ann.id);
+  return { ...graph, annotations: [...rest, ann] };
+}
+
+export function deleteAnnotation(graph: BuiltGraph, id: string): BuiltGraph {
+  return { ...graph, annotations: (graph.annotations ?? []).filter((a) => a.id !== id) };
+}
+
+// Per-node flags for canvas styling: which nodes carry a note / a suspect mark.
+export function annotationFlags(graph: BuiltGraph): Map<string, { note: boolean; suspect: boolean }> {
+  const m = new Map<string, { note: boolean; suspect: boolean }>();
+  for (const a of graph.annotations ?? []) {
+    for (const id of a.nodeIds) {
+      const f = m.get(id) ?? { note: false, suspect: false };
+      if (a.kind === "suspect") f.suspect = true; else f.note = true;
+      m.set(id, f);
+    }
+  }
+  return m;
 }
 
 // Remove nodes AND the transaction (Tx) nodes directly attached to them — i.e.
@@ -55,7 +93,10 @@ export function mergeGraphs(a: BuiltGraph, b: BuiltGraph): BuiltGraph {
   }
   const edges = new Map<string, GEdge>();
   for (const e of [...a.edges, ...b.edges]) if (!edges.has(e.id)) edges.set(e.id, e);
-  return finalize([...nodes.values()], [...edges.values()], [...a.warnings, ...b.warnings]);
+  // Union annotations by id (later graph wins on conflict).
+  const annById = new Map<string, GAnnotation>();
+  for (const an of [...(a.annotations ?? []), ...(b.annotations ?? [])]) annById.set(an.id, an);
+  return finalize([...nodes.values()], [...edges.values()], [...a.warnings, ...b.warnings], [...annById.values()]);
 }
 
 // Rewrite a graph to the current wallet-id scheme and merge any duplicates
@@ -87,7 +128,16 @@ export function normalizeGraph(graph: BuiltGraph): BuiltGraph {
     if (source === target) continue; // self-loops from collapsing same-address nodes
     edges.set(`${source}|${target}|${e.type}`, { ...e, id: `${source}>${target}:${e.type}`, source, target });
   }
-  return finalize([...nodes.values()], [...edges.values()], graph.warnings);
+  // Remap annotation node refs through the same id collapse, then drop dangling ones.
+  const keep = new Set(nodes.keys());
+  const annotations = pruneAnnotations(
+    (graph.annotations ?? []).map((a) => ({
+      ...a,
+      nodeIds: [...new Set(a.nodeIds.map((id) => idMap.get(id) ?? id))],
+    })),
+    keep,
+  );
+  return finalize([...nodes.values()], [...edges.values()], graph.warnings, annotations);
 }
 
 // Extract the BFS neighborhood around a focus node (default 2 hops) as a plain

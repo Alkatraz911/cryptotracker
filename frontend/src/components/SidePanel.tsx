@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AiChat from "./AiChat";
 import { store, type AiMsg, type NodeNetCache, type SourceStatus, type Transfer, type WalletBalance } from "../lib/store";
-import { transfersSubgraph, bridgeSubgraph } from "../lib/graphMerge";
+import { transfersSubgraph, bridgeSubgraph, annotationsForNode } from "../lib/graphMerge";
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
 import { ALL_NETWORKS, networkColor, walletNodeId, type Network } from "../lib/explorers";
 import { nodeIsRisky } from "../lib/tags";
-import type { BuiltGraph, GEdge, GNode } from "../lib/graph";
+import type { AnnotationKind, BuiltGraph, GAnnotation, GEdge, GNode } from "../lib/graph";
 
 interface Props {
   node: GNode;
@@ -14,6 +14,8 @@ interface Props {
   onAdd: (sub: { nodes: GNode[]; edges: GEdge[] }) => void;
   onMark: (id: string, patch: { tag?: string; note?: string }) => void;
   onRemove: (id: string) => void;
+  onSaveAnnotation: (ann: GAnnotation) => void;
+  onDeleteAnnotation: (id: string) => void;
   onLabel: (id: string, entityName: string, bridge?: string) => void;
   onSetNet: (id: string, net: Network) => void;
   onUnmerge: (id: string) => void;
@@ -300,7 +302,7 @@ function Metric({ label, value, sub, loading, title }: { label: string; value: s
 type OverviewProps = Props & { isWallet: boolean; isTx: boolean };
 
 function OverviewTab({
-  node, graph, onAdd, onMark, onRemove, onLabel, onSetNet, onUnmerge, onTrace,
+  node, graph, onAdd, onMark, onRemove, onSaveAnnotation, onDeleteAnnotation, onLabel, onSetNet, onUnmerge, onTrace,
   isWallet, isTx,
 }: OverviewProps) {
   const isEntity = node.kind === "Entity" && !!node.mergedFrom;
@@ -320,6 +322,10 @@ function OverviewTab({
   const preferBridge = resolver ? bridge : undefined;
   const [note, setNote] = useState(node.note ?? "");
   const [marked, setMarked] = useState(false);
+  // Case annotations (Phase 4) for this node.
+  const nodeAnnotations = annotationsForNode(graph, node.id);
+  const [annText, setAnnText] = useState("");
+  const [annKind, setAnnKind] = useState<AnnotationKind>("note");
   const [confirmDel, setConfirmDel] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelErr, setLabelErr] = useState<string | null>(null);
@@ -334,7 +340,7 @@ function OverviewTab({
   const [traceBusy, setTraceBusy] = useState(false);
   const [traceMsg, setTraceMsg] = useState<string | null>(null);
 
-  useEffect(() => { setNote(node.note ?? ""); setConfirmDel(false); }, [node.id]);
+  useEffect(() => { setNote(node.note ?? ""); setConfirmDel(false); setAnnText(""); setAnnKind("note"); }, [node.id]);
 
   async function fetchLabel() {
     if (!node.address || !node.net || node.net === "UNKNOWN") return;
@@ -351,6 +357,15 @@ function OverviewTab({
     onMark(node.id, { note: note.trim() || undefined });
     setMarked(true);
     setTimeout(() => setMarked(false), 2000);
+  }
+
+  function addAnnotation() {
+    const text = annText.trim();
+    if (!text) return;
+    const now = Date.now();
+    onSaveAnnotation({ id: `ann_${now}_${Math.random().toString(36).slice(2, 8)}`, nodeIds: [node.id], text, kind: annKind, createdAt: now, updatedAt: now });
+    setAnnText("");
+    setAnnKind("note");
   }
 
   async function resolveBridge() {
@@ -451,6 +466,40 @@ function OverviewTab({
         <strong>Заметка</strong>
         <input placeholder="заметка по узлу" value={note} onChange={(e) => setNote(e.target.value)} />
         <button className="primary" onClick={saveNote}>{marked ? "Сохранено ✓" : "Сохранить заметку"}</button>
+      </div>
+
+      {/* Case annotations (Phase 4): timestamped investigator notes / suspect
+          flags tied to this node — the raw material of the case narrative. */}
+      <div className="annbox">
+        <strong>Аннотации дела</strong>
+        {nodeAnnotations.length > 0 && (
+          <ul className="annlist">
+            {nodeAnnotations.slice().sort((a, b) => b.createdAt - a.createdAt).map((a) => (
+              <li key={a.id} className={`annitem ${a.kind}`}>
+                <span className="anngly">{a.kind === "suspect" ? "🚩" : "📝"}</span>
+                <div className="anntext">
+                  <div>{a.text}</div>
+                  <div className="annmeta">{fmtDate(a.createdAt)}{a.nodeIds.length > 1 ? ` · ${a.nodeIds.length} узлов` : ""}</div>
+                </div>
+                <button className="link anndel" title="Удалить" onClick={() => onDeleteAnnotation(a.id)}>✕</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <textarea
+          className="anninput"
+          placeholder="комментарий по узлу для отчёта…"
+          rows={2}
+          value={annText}
+          onChange={(e) => setAnnText(e.target.value)}
+        />
+        <div className="annrow">
+          <select value={annKind} onChange={(e) => setAnnKind(e.target.value as AnnotationKind)}>
+            <option value="note">📝 заметка</option>
+            <option value="suspect">🚩 подозрительно</option>
+          </select>
+          <button className="primary" onClick={addAnnotation} disabled={!annText.trim()}>Добавить</button>
+        </div>
       </div>
 
       {isWallet && (

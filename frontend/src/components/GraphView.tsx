@@ -4,6 +4,7 @@ import cytoscape from "cytoscape";
 // @ts-expect-error - cytoscape-dagre ships no types
 import dagre from "cytoscape-dagre";
 import type { BuiltGraph, GNode } from "../lib/graph";
+import { annotationFlags } from "../lib/graphMerge";
 import { networkColor } from "../lib/explorers";
 import { tagById, nodeIsRisky } from "../lib/tags";
 
@@ -124,10 +125,13 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
   }, [mergeMode]);
 
   const elements = useMemo(() => {
+    const annFlags = annotationFlags(graph); // case annotations (Phase 4) per node
     const nodes = graph.nodes.map((n) => {
       const t = tagById(n.tag);
       const risky = nodeIsRisky(n.tag, n.entityName);
-      const marker = n.note ? `\n📌 ${n.note}` : t ? `\n⚑ ${t.label}` : "";
+      const ann = annFlags.get(n.id);
+      const annGlyph = ann?.suspect ? "🚩" : ann?.note ? "📝" : "";
+      const marker = (annGlyph ? `\n${annGlyph} аннотация` : "") + (n.note ? `\n📌 ${n.note}` : t ? `\n⚑ ${t.label}` : "");
       // Multi-network wallets: colour the node as pie slices, one per network,
       // so a node active on e.g. Arbitrum+BSC reads as blue+yellow at a glance.
       const nets = n.kind === "Wallet" && !t ? (n.nets ?? []) : [];
@@ -142,6 +146,8 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
           size: 22 + Math.min(28, n.degree * 3),
           marked: t || n.note ? 1 : 0,
           risk: risky ? 1 : 0,
+          suspect: ann?.suspect ? 1 : 0,
+          annotated: ann ? 1 : 0,
           multi,
         },
       };
@@ -348,6 +354,9 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
     { selector: "node[marked = 1]", style: { "border-width": 3, "border-color": c.mark, "border-opacity": 0.9 } },
     // Risk nodes (mixer/suspect/cashout tag or AI-flagged): red ring + ⚠ glyph.
     { selector: "node[risk = 1]", style: { "border-width": 3, "border-color": "#ef4444", "border-opacity": 0.95 } },
+    // Investigator-flagged "suspect" (case annotation) — amber dashed ring, so it
+    // reads distinctly from an AI-derived risk node.
+    { selector: "node[suspect = 1]", style: { "border-width": 3, "border-color": "#f59e0b", "border-style": "dashed", "border-opacity": 0.95 } },
     { selector: "node:selected", style: { "border-width": 4, "border-color": c.selected } },
     // Multi-select (merge/delete) highlight — driven by the `sel` data flag.
     { selector: "node[sel = 1]", style: { "border-width": 4, "border-color": c.selected, "border-opacity": 1 } },

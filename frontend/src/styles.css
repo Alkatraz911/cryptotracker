@@ -320,6 +320,22 @@ button.danger:hover { background: var(--danger-hover); }
 .markbox input { margin-top: 8px; }
 .markbox select { flex: 1; padding: 6px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; }
 
+/* case annotations (Phase 4) */
+.annbox { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.annbox > strong { font-size: 13px; }
+.annlist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.annitem { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; background: var(--bg-card); border-left: 3px solid var(--border-strong); }
+.annitem.suspect { border-left-color: #f59e0b; }
+.annitem.note { border-left-color: #3b82f6; }
+.anngly { font-size: 13px; line-height: 1.4; }
+.anntext { flex: 1; font-size: 12px; word-break: break-word; }
+.annmeta { margin-top: 2px; font-size: 10px; color: var(--text-muted); }
+.anndel { padding: 0 2px; font-size: 12px; }
+.anninput { margin-top: 8px; width: 100%; resize: vertical; padding: 6px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; font: inherit; box-sizing: border-box; }
+.annrow { display: flex; gap: 6px; margin-top: 6px; }
+.annrow select { flex: 1; padding: 6px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; }
+.annrow button { margin-top: 0; white-space: nowrap; }
+
 /* load-transactions block in node modal */
 .loadtx { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .loadtx > strong { font-size: 13px; }

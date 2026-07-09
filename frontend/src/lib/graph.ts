@@ -94,12 +94,28 @@ export interface LinkedPair {
   weight: number;
 }
 
+// Case annotations (Phase 4): investigator notes tied to one or more nodes, the
+// raw material of the case narrative. Persisted inside the project graph (JSONB),
+// so they travel with saves, undo/redo and the case export. `kind` "suspect"
+// flags a node visually (distinct from AI-derived `risk`); "note" is a plain
+// comment. `nodeIds` holds 1+ nodes (grouping several under one annotation).
+export type AnnotationKind = "note" | "suspect";
+export interface GAnnotation {
+  id: string;
+  nodeIds: string[];
+  text: string;
+  kind: AnnotationKind;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface BuiltGraph {
   nodes: GNode[];
   edges: GEdge[];
   linked: LinkedPair[];
   warnings: string[];
   counts: Record<Kind, number>;
+  annotations?: GAnnotation[];
 }
 
 const KIND_COLOR: Record<Kind, string> = {

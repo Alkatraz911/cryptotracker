@@ -11,8 +11,8 @@ import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
-import { emptyGraph, finalize, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity } from "./lib/graphMerge";
-import { walletLabel, type BuiltGraph, type GEdge, type GNode } from "./lib/graph";
+import { deleteAnnotation, emptyGraph, finalize, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
+import { walletLabel, type BuiltGraph, type GAnnotation, type GEdge, type GNode } from "./lib/graph";
 import { addressUrl, networkColor, type Network } from "./lib/explorers";
 import { applyTheme, getStoredTheme, type Theme } from "./lib/theme";
 
@@ -154,7 +154,7 @@ export default function App() {
       const d = JSON.parse(raw);
       if (!d.graph?.nodes?.length) return null;
       return {
-        graph: normalizeGraph(finalize(d.graph.nodes, d.graph.edges ?? [], d.graph.warnings ?? [])),
+        graph: normalizeGraph(finalize(d.graph.nodes, d.graph.edges ?? [], d.graph.warnings ?? [], d.graph.annotations ?? [])),
         currentId: d.currentId ?? null,
         name: d.name ?? "",
       };
@@ -253,7 +253,7 @@ export default function App() {
     fetchingIds.current = new Set();
     const p = await store.getProject(id);
     setCurrentId(p.id); setName(p.name);
-    setGraph(normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [])));
+    setGraph(normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [], p.graph.annotations ?? [])));
     setTxCache({}); // session cache; transfers come from the shared store on demand
     resetHistory(); setSelectedId(null); setFocusId(null); setDirty(false);
   }
@@ -368,6 +368,11 @@ export default function App() {
   function markNode(id: string, patch: { tag?: string; note?: string }) {
     commit({ ...graph, nodes: graph.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) });
   }
+
+  // Case annotations (Phase 4): add/edit or remove an investigator note tied to
+  // a node (persisted in the graph → autosaved, undoable).
+  function saveAnnotation(ann: GAnnotation) { commit(upsertAnnotation(graph, ann)); }
+  function removeAnnotation(id: string) { commit(deleteAnnotation(graph, id)); }
 
   // Run a navigation (new/open) but offer to save first if there are unsaved changes.
   function requestNav(fn: () => void) {
@@ -637,6 +642,8 @@ export default function App() {
           onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
           onMark={markNode}
           onRemove={removeNode}
+          onSaveAnnotation={saveAnnotation}
+          onDeleteAnnotation={removeAnnotation}
           onLabel={labelNode}
           onSetNet={setNetNode}
           onUnmerge={unmergeNode}
