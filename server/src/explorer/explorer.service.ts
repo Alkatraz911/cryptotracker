@@ -133,7 +133,7 @@ export class ExplorerService {
   async fetchWalletTransfers(
     network: string, address: string,
     opts: { native: boolean; token: boolean; limit: number; labels?: boolean },
-  ): Promise<{ transfers: TransferItem[]; diag: string | null; status?: SourceStatus }> {
+  ): Promise<{ transfers: TransferItem[]; diag: string | null; status?: SourceStatus; source?: string }> {
     const o = {
       native: opts.native ?? true,
       token: opts.token ?? true,
@@ -164,7 +164,7 @@ export class ExplorerService {
       await this.enrichUsd(transfers);
       if (opts.labels !== false) await this.enrichLabels(network, address, transfers);
 
-      return { transfers, diag: transfers.length ? null : res.diag, status };
+      return { transfers, diag: transfers.length ? null : res.diag, status, source: res.source };
     } catch (e) {
       this.health.record(network, 'down', { note: String((e as Error)?.message || e) });
       return { transfers: [], diag: String((e as Error)?.message || e), status: 'down' };

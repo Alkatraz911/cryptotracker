@@ -290,6 +290,8 @@ export interface Transfer {
   usdValue?: number;
   fromLabel?: string | null;
   toLabel?: string | null;
+  source?: string | null;    // provenance: data source this fact came from
+  fetchedAt?: number | null;  // provenance: when it was pulled into the store (ms)
 }
 
 export interface WalletHolding { asset: string; amount: number; usdValue: number | null; }

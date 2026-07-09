@@ -3,7 +3,7 @@ import AiChat from "./AiChat";
 import { store, type AiMsg, type NodeNetCache, type SourceStatus, type Transfer, type WalletBalance } from "../lib/store";
 import { transfersSubgraph, bridgeSubgraph, annotationsForNode } from "../lib/graphMerge";
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
-import { ALL_NETWORKS, networkColor, walletNodeId, type Network } from "../lib/explorers";
+import { ALL_NETWORKS, networkColor, txUrl, walletNodeId, type Network } from "../lib/explorers";
 import { nodeIsRisky } from "../lib/tags";
 import type { AnnotationKind, BuiltGraph, GAnnotation, GEdge, GNode } from "../lib/graph";
 
@@ -743,10 +743,16 @@ function TxTab({
                   const cpAddr = out ? t.to : t.from;
                   const cpLc = cpAddr?.toLowerCase();
                   const cpLabel = (out ? t.toLabel : t.fromLabel) ?? (cpLc ? labelByAddr.get(cpLc) ?? fetched.get(cpLc) : undefined);
+                  // Provenance for this fact: where it came from + when we pulled it.
+                  const txHref = t.hash ? txUrl(t.network as Network, t.hash) : null;
+                  const prov = `источник: ${t.source ?? "—"}\nзагружено: ${t.fetchedAt ? fmtDate(t.fetchedAt) : "—"}`;
                   return (
                     <tr key={i} className={`${sel.has(i) ? "sel" : ""}${cpLabel ? " tagged" : ""}`} onClick={() => toggle(i)}>
                       <td><input type="checkbox" checked={sel.has(i)} onChange={() => toggle(i)} onClick={(e) => e.stopPropagation()} /></td>
-                      <td className="tdate">{fmtDate(t.timestamp)}</td>
+                      <td className="tdate" title={prov}>
+                        {fmtDate(t.timestamp)}
+                        {txHref && <a className="txlink" href={txHref} target="_blank" rel="noopener" title="Открыть в эксплорере" onClick={(e) => e.stopPropagation()}>↗</a>}
+                      </td>
                       <td><span className={out ? "dir-out" : "dir-in"}>{out ? "→ out" : "← in"}</span></td>
                       <td>
                         <span className="taddr">

@@ -42,6 +42,8 @@ export interface TransferItem {
   fromLabel?: string | null; // entity tag for the from address (exchange/contract)
   toLabel?: string | null;   // entity tag for the to address
   transfers?: TransferItem[];
+  source?: string | null;    // provenance: data source this fact came from (set when read from the store)
+  fetchedAt?: number | null; // provenance: when it was pulled into the store (ms)
 }
 
 // A wallet-transfer fetch result carries the source's health so callers can tell

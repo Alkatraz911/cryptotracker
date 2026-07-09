@@ -268,6 +268,9 @@ button.primary:disabled:hover { background: var(--bg-hover); }
 .flash.source-issue.down { background: rgba(234, 179, 8, 0.14); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.35); }
 .flash.source-issue.drift { background: rgba(239, 68, 68, 0.14); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); }
 .source-issue-detail { margin-top: 4px; font-size: 11px; opacity: 0.8; }
+/* explorer link + provenance hover on a transfer row */
+.txlink { margin-left: 5px; color: var(--link); text-decoration: none; font-size: 11px; }
+.txlink:hover { text-decoration: underline; }
 
 /* manual add */
 .manual { margin-top: 14px; padding: 12px; border-radius: 8px; background: var(--bg-card); }

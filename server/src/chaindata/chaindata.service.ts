@@ -79,7 +79,7 @@ export class ChainDataService {
       });
       fetchDiag = res.diag;
       fetchStatus = res.status;
-      await this.persist(network, res.transfers);
+      await this.persist(network, res.transfers, res.source ?? null);
       // Record the attempt time regardless of outcome, so a genuinely-empty or
       // persistently-failing wallet is retried at most once per staleness window.
       await this.markLoaded(network, addr);
@@ -104,8 +104,10 @@ export class ChainDataService {
     return { transfers: rows.map(toTransferItem), diag: rows.length ? null : fetchDiag, status };
   }
 
-  private async persist(network: string, transfers: TransferItem[]): Promise<void> {
+  private async persist(network: string, transfers: TransferItem[], source: string | null): Promise<void> {
     if (!transfers.length) return;
+    // Stamp all rows from this fetch with their provenance (data source + when).
+    const fetchedAt = new Date();
     // Dedup within this batch (same dedupKey twice in one fetch) before upserting.
     const byKey = new Map<string, Transaction>();
     for (const t of transfers) {
@@ -123,6 +125,8 @@ export class ChainDataService {
         usd: t.usdValue ?? null,
         fromLabel: t.fromLabel ?? null,
         toLabel: t.toLabel ?? null,
+        source,
+        fetchedAt,
       }));
     }
     const rows = [...byKey.values()];
@@ -149,5 +153,7 @@ function toTransferItem(t: Transaction): TransferItem {
     timestamp: t.blockTs ?? undefined,
     fromLabel: t.fromLabel ?? undefined,
     toLabel: t.toLabel ?? undefined,
+    source: t.source ?? undefined,
+    fetchedAt: t.fetchedAt ? new Date(t.fetchedAt).getTime() : undefined,
   };
 }

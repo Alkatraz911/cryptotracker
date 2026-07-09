@@ -46,4 +46,11 @@ export class Transaction {
 
   @Column({ name: 'to_label', type: 'varchar', nullable: true })
   toLabel!: string | null;
+
+  // Provenance: which data source produced this row and when it was fetched.
+  @Column({ type: 'varchar', nullable: true })
+  source!: string | null;
+
+  @Column({ name: 'fetched_at', type: 'timestamptz', nullable: true })
+  fetchedAt!: Date | null;
 }
