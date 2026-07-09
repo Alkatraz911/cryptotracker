@@ -3,18 +3,46 @@
 // must collapse to ONE node, so shared IPs and shared deposit wallets surface
 // links between different exchange accounts.
 import {
-  addrKey, addressUrl, hashFromUrl, networkColor, networkFromAddress,
-  networkFromUrl, normalizeNetwork, txUrl, type Network,
+  addressUrl, hashFromUrl, networkColor, networkFromAddress,
+  networkFromUrl, normalizeNetwork, txUrl, walletNodeId, type Network,
 } from "./explorers";
 import type { Mapping } from "./csv";
 
-export type Kind = "Wallet" | "User" | "IP" | "Tx";
+export type Kind = "Wallet" | "User" | "IP" | "Tx" | "Entity";
+export const KINDS: Kind[] = ["Wallet", "User", "IP", "Tx", "Entity"];
+
+// Short wallet label: address + the chain(s) it's active on, e.g. "0x12…ab\n[ETH·BSC]".
+// With an entity name (contract/tag) it leads: "Binance\n0x12…ab [ETH·BSC]".
+export function walletLabel(address: string, nets: Network[], primary?: Network, entityName?: string): string {
+  const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
+  const chains = nets.length ? nets.join("·") : (primary && primary !== "UNKNOWN" ? primary : "UNKNOWN");
+  if (entityName) {
+    const e = entityName.length > 30 ? entityName.slice(0, 28) + "…" : entityName;
+    return `${e}\n${short} [${chains}]`;
+  }
+  return `${short}\n[${chains}]`;
+}
+
+// Record that a wallet node is active on `net`, refreshing its chain list,
+// primary network/colour/explorer link, and label. Safe to call repeatedly.
+export function addWalletNet(node: GNode, net?: Network): void {
+  if (node.kind !== "Wallet" || !node.address) return;
+  if (!node.nets) node.nets = node.net && node.net !== "UNKNOWN" ? [node.net] : [];
+  if (net && net !== "UNKNOWN" && !node.nets.includes(net)) node.nets.push(net);
+  if ((!node.net || node.net === "UNKNOWN") && net && net !== "UNKNOWN") {
+    node.net = net;
+    node.color = networkColor(net);
+    if (!node.explorerUrl) node.explorerUrl = addressUrl(net, node.address);
+  }
+  node.label = walletLabel(node.address, node.nets, node.net, node.entityName);
+}
 
 export interface GNode {
   id: string;
   kind: Kind;
   label: string;
-  net?: Network;
+  net?: Network; // primary/representative network (first resolved)
+  nets?: Network[]; // all networks this wallet is active on (EVM nodes span chains)
   address?: string;
   uid?: string;
   exchange?: string;
@@ -28,8 +56,16 @@ export interface GNode {
   x?: number; // saved canvas position
   y?: number;
   entityName?: string; // label pulled from explorer (contract name / token name / name tag)
+  bridge?: string; // bridge id if this wallet is a known bridge maker/contract (from the registry)
   tag?: string; // manual marker category id (see lib/tags.ts)
   note?: string; // free-text marker / annotation
+  timestamp?: number; // tx time (ms) — used to seed Orbiter cross-chain resolve
+  chainName?: string; // display name for chains outside our Network union (e.g. "Optimism")
+  chainId?: string; // numeric EVM chain id — set on Orbiter-created cross-chain nodes
+  // Entity (manual merge): the absorbed member nodes + their original incident
+  // edges, kept so the merge can be reversed.
+  mergedFrom?: GNode[];
+  mergedEdges?: GEdge[];
 }
 
 export type EdgeType =
@@ -38,7 +74,8 @@ export type EdgeType =
   | "USED_IP"
   | "FROM_IP"
   | "WITHDREW_TO"
-  | "SENT"; // on-chain transfer (manual / explorer add)
+  | "SENT" // on-chain transfer (manual / explorer add)
+  | "BRIDGE"; // cross-chain hop (Orbiter source tx → target tx)
 
 export interface GEdge {
   id: string;
@@ -70,6 +107,7 @@ const KIND_COLOR: Record<Kind, string> = {
   Wallet: "#3b82f6", // overridden per-network below
   IP: "#f59e0b",
   Tx: "#6b7280",
+  Entity: "#eab308", // gold — manually merged actor
 };
 
 export function kindColor(kind: Kind): string {
@@ -100,6 +138,8 @@ export function buildGraph(
       // fill in any missing detail
       if (!existing.amount && n.amount) existing.amount = n.amount;
       if (!existing.coin && n.coin) existing.coin = n.coin;
+      // union the chain a wallet is seen on (EVM nodes span networks)
+      if (existing.kind === "Wallet") addWalletNet(existing, n.net);
       return existing;
     }
     nodes.set(n.id, n);
@@ -140,11 +180,11 @@ export function buildGraph(
 
     let walletId = "";
     if (address) {
-      walletId = `W:${net}:${addrKey(address)}`;
+      walletId = walletNodeId(net, address);
       upsert({
         id: walletId, kind: "Wallet",
-        label: `${address.slice(0, 6)}…${address.slice(-4)}\n[${net}]`,
-        net, address, color: networkColor(net), degree: 1,
+        label: walletLabel(address, net !== "UNKNOWN" ? [net] : [], net),
+        net, nets: net !== "UNKNOWN" ? [net] : [], address, color: networkColor(net), degree: 1,
         explorerUrl: addressUrl(net, address),
       });
     }
@@ -188,14 +228,13 @@ export function buildGraph(
     );
 
   const linked = clusterUsers(ipUsers, walletUsers, nodes);
-  const counts: Record<Kind, number> = { Wallet: 0, User: 0, IP: 0, Tx: 0 };
-  for (const n of nodes.values()) counts[n.kind]++;
+  const counts = countKinds([...nodes.values()]);
 
   return { nodes: [...nodes.values()], edges: [...edges.values()], linked, warnings, counts };
 }
 
 export function countKinds(nodes: GNode[]): Record<Kind, number> {
-  const c: Record<Kind, number> = { Wallet: 0, User: 0, IP: 0, Tx: 0 };
+  const c = Object.fromEntries(KINDS.map((k) => [k, 0])) as Record<Kind, number>;
   for (const n of nodes) c[n.kind]++;
   return c;
 }
@@ -241,7 +280,8 @@ function clusterUsers(
       p = { a: x, b: y, aLabel: label(x), bLabel: label(y), sharedIps: [], sharedWallets: [], weight: 0 };
       pairs.set(key, p);
     }
-    const res = resource.replace(/^[IW]:/, "");
+    // Strip the id prefix (I: / W:) and any network segment (EVM:, ETH:, …) → bare resource.
+    const res = resource.replace(/^[IW]:/, "").replace(/^[A-Z]+:/, "");
     if (kind === "ip" && !p.sharedIps.includes(res)) { p.sharedIps.push(res); p.weight += 40; }
     if (kind === "wallet" && !p.sharedWallets.includes(res)) { p.sharedWallets.push(res); p.weight += 90; }
   };

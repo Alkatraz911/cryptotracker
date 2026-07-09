@@ -1,0 +1,41 @@
+# Fully isolated microservice: its OWN PostgreSQL (separate instance, volume and
+# host port) + the indexer app. Nothing shared with the main project's database.
+#   docker compose up -d            # start db + indexer
+#   docker compose run --rm indexer node dist/cli backfill --pairs --from 2025-01-01
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orbiter
+      POSTGRES_PASSWORD: orbiter
+      POSTGRES_DB: orbiter
+    ports:
+      - "5455:5432"          # host:container — own port, distinct from the main DB
+    volumes:
+      - orbiter-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbiter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  indexer:
+    build: .
+    environment:
+      PORT: 8090
+      DATABASE_URL: postgres://orbiter:orbiter@db:5432/orbiter
+      DB_SYNC: "true"
+      CRAWL_ENABLED: "true"
+      CRAWL_INTERVAL_MS: "180000"
+      ENRICH_ENABLED: "true"
+      ENRICH_INTERVAL_MS: "60000"
+      ENRICH_BATCH: "40"
+    ports:
+      - "8090:8090"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  orbiter-pgdata:

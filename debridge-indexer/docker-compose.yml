@@ -1,0 +1,40 @@
+# Fully isolated microservice: its OWN PostgreSQL + the indexer app.
+#   docker compose up -d
+#   docker compose run --rm indexer node dist/cli backfill --max 50000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: debridge
+      POSTGRES_PASSWORD: debridge
+      POSTGRES_DB: debridge
+    ports:
+      - "5456:5432"          # own host port, distinct from the main DB and orbiter-indexer
+    volumes:
+      - debridge-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U debridge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  indexer:
+    build: .
+    environment:
+      PORT: 8091
+      DATABASE_URL: postgres://debridge:debridge@db:5432/debridge
+      DB_SYNC: "true"
+      CRAWL_ENABLED: "true"
+      CRAWL_INTERVAL_MS: "120000"
+      ENRICH_ENABLED: "true"
+      ENRICH_INTERVAL_MS: "45000"
+      ENRICH_BATCH: "40"
+    ports:
+      - "8091:8091"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  debridge-pgdata:

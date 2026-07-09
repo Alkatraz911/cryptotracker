@@ -108,11 +108,25 @@ export function normalizeNetwork(raw: unknown): Network {
   return upper in EXPLORERS ? (upper as Network) : "UNKNOWN";
 }
 
+// Extra hostnames beyond the single canonical host in EXPLORERS.
+const EXTRA_HOSTS: Array<[string, Network]> = [
+  ["explorer.solana.com", "SOLANA"],
+  ["solana.fm", "SOLANA"],
+  ["solanabeach.io", "SOLANA"],
+  ["xray.helius.xyz", "SOLANA"],
+  ["solana.hashflow.com", "SOLANA"],
+  ["tronscan.io", "TRON"],
+  ["explorer.tron.network", "TRON"],
+];
+
 // Infer the network from a tx/address explorer URL by its domain.
 export function networkFromUrl(url: string): Network {
   const u = url.toLowerCase();
   for (const [net, def] of Object.entries(EXPLORERS)) {
     if (u.includes(def.host)) return net as Network;
+  }
+  for (const [host, net] of EXTRA_HOSTS) {
+    if (u.includes(host)) return net;
   }
   return "UNKNOWN";
 }
@@ -126,18 +140,34 @@ export function hashFromUrl(url: string): string | null {
   return seg && seg.length >= 16 ? seg : null;
 }
 
-// Guess network from address shape when nothing else is known.
+// Guess network from address/hash shape when nothing else is known.
 export function networkFromAddress(addr: string): Network {
   if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) return "TRON";
   if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "ETH"; // EVM; chain unknown -> default ETH
-  // Solana: base58, 32-44 chars (checked after TRON to avoid false positives)
-  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) return "SOLANA";
+  // Solana: base58, 32-88 chars — covers both wallet addresses (32-44) and tx signatures (87-88)
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,88}$/.test(addr)) return "SOLANA";
   return "UNKNOWN";
 }
 
 // Canonical key for de-duplication: lowercase EVM, keep TRON case-sensitive.
 export function addrKey(addr: string): string {
   return addr.startsWith("0x") ? addr.toLowerCase() : addr;
+}
+
+// EVM-family networks share the same address space — one 0x address is the SAME
+// account on all of them (and on chains we don't model: Optimism, Linea, …).
+export const EVM_NETWORKS: Network[] = ["ETH", "BSC", "POLYGON", "ARBITRUM", "BASE"];
+
+export function isEvmAddress(addr: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(addr.trim());
+}
+
+// Canonical wallet-node id. EVM addresses are chain-agnostic → one node per
+// address regardless of network (so the same actor on ETH+BSC is ONE node).
+// Non-EVM (TRON/Solana) keep the network since their address formats differ.
+export function walletNodeId(net: Network, address: string): string {
+  if (isEvmAddress(address)) return `W:EVM:${address.toLowerCase()}`;
+  return `W:${net}:${addrKey(address)}`;
 }
 
 export function addressUrl(net: Network, addr: string): string | null {
