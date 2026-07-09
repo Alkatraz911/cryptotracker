@@ -58,7 +58,7 @@ export interface GNode {
   entityName?: string; // label pulled from explorer (contract name / token name / name tag)
   bridge?: string; // bridge id if this wallet is a known bridge maker/contract (from the registry)
   tag?: string; // manual marker category id (see lib/tags.ts)
-  note?: string; // free-text marker / annotation
+  note?: string; // legacy per-node note — superseded by case notes (annotations); kept for old saved graphs
   timestamp?: number; // tx time (ms) — used to seed Orbiter cross-chain resolve
   chainName?: string; // display name for chains outside our Network union (e.g. "Optimism")
   chainId?: string; // numeric EVM chain id — set on Orbiter-created cross-chain nodes

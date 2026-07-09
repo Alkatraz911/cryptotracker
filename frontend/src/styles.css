@@ -315,12 +315,7 @@ button.danger { background: var(--danger); border-color: var(--danger); color: #
 button.danger:hover { background: var(--danger-hover); }
 
 /* marking block in node modal */
-.markbox { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.markbox > strong { font-size: 13px; }
-.markbox input { margin-top: 8px; }
-.markbox select { flex: 1; padding: 6px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; }
-
-/* case annotations (Phase 4) */
+/* case notes (Phase 4) */
 .annbox { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .annbox > strong { font-size: 13px; }
 .annlist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

@@ -13,7 +13,6 @@ export default function DetailsPanel({ node }: { node: GNode | null }) {
       </div>
 
       {node.entityName && <Row k="Entity" v={node.entityName} highlight />}
-      {node.note && <Row k="Метка" v={node.note} />}
 
       {node.address && <Row k="Address" v={node.address} mono />}
       {node.uid && <Row k="UID" v={node.uid} />}

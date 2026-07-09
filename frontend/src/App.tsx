@@ -364,12 +364,7 @@ export default function App() {
 
   function removeNode(id: string) { applyDelete([id]); }
 
-  // apply a manual marker to a node (undoable)
-  function markNode(id: string, patch: { tag?: string; note?: string }) {
-    commit({ ...graph, nodes: graph.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) });
-  }
-
-  // Case annotations (Phase 4): add/edit or remove an investigator note tied to
+  // Case notes (Phase 4): add/edit or remove an investigator note tied to
   // a node (persisted in the graph → autosaved, undoable).
   function saveAnnotation(ann: GAnnotation) { commit(upsertAnnotation(graph, ann)); }
   function removeAnnotation(id: string) { commit(deleteAnnotation(graph, id)); }
@@ -640,7 +635,6 @@ export default function App() {
           graph={graph}
           onClose={() => setSelectedId(null)}
           onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
-          onMark={markNode}
           onRemove={removeNode}
           onSaveAnnotation={saveAnnotation}
           onDeleteAnnotation={removeAnnotation}

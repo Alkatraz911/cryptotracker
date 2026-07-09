@@ -12,7 +12,6 @@ interface Props {
   graph: BuiltGraph;
   onClose: () => void;
   onAdd: (sub: { nodes: GNode[]; edges: GEdge[] }) => void;
-  onMark: (id: string, patch: { tag?: string; note?: string }) => void;
   onRemove: (id: string) => void;
   onSaveAnnotation: (ann: GAnnotation) => void;
   onDeleteAnnotation: (id: string) => void;
@@ -302,7 +301,7 @@ function Metric({ label, value, sub, loading, title }: { label: string; value: s
 type OverviewProps = Props & { isWallet: boolean; isTx: boolean };
 
 function OverviewTab({
-  node, graph, onAdd, onMark, onRemove, onSaveAnnotation, onDeleteAnnotation, onLabel, onSetNet, onUnmerge, onTrace,
+  node, graph, onAdd, onRemove, onSaveAnnotation, onDeleteAnnotation, onLabel, onSetNet, onUnmerge, onTrace,
   isWallet, isTx,
 }: OverviewProps) {
   const isEntity = node.kind === "Entity" && !!node.mergedFrom;
@@ -320,9 +319,7 @@ function OverviewTab({
   // bridge contract being present + labelled as a graph neighbour.
   const canResolve = isTx && !!node.hash && !!bridgeChainId;
   const preferBridge = resolver ? bridge : undefined;
-  const [note, setNote] = useState(node.note ?? "");
-  const [marked, setMarked] = useState(false);
-  // Case annotations (Phase 4) for this node.
+  // Case notes (Phase 4) for this node.
   const nodeAnnotations = annotationsForNode(graph, node.id);
   const [annText, setAnnText] = useState("");
   const [annKind, setAnnKind] = useState<AnnotationKind>("note");
@@ -340,7 +337,7 @@ function OverviewTab({
   const [traceBusy, setTraceBusy] = useState(false);
   const [traceMsg, setTraceMsg] = useState<string | null>(null);
 
-  useEffect(() => { setNote(node.note ?? ""); setConfirmDel(false); setAnnText(""); setAnnKind("note"); }, [node.id]);
+  useEffect(() => { setConfirmDel(false); setAnnText(""); setAnnKind("note"); }, [node.id]);
 
   async function fetchLabel() {
     if (!node.address || !node.net || node.net === "UNKNOWN") return;
@@ -351,12 +348,6 @@ function OverviewTab({
       else setLabelErr("Метка не найдена для этого адреса.");
     } catch (e: any) { setLabelErr(e.message ?? "Ошибка запроса"); }
     finally { setLabelBusy(false); }
-  }
-
-  function saveNote() {
-    onMark(node.id, { note: note.trim() || undefined });
-    setMarked(true);
-    setTimeout(() => setMarked(false), 2000);
   }
 
   function addAnnotation() {
@@ -462,16 +453,10 @@ function OverviewTab({
         </div>
       )}
 
-      <div className="markbox">
-        <strong>Заметка</strong>
-        <input placeholder="заметка по узлу" value={note} onChange={(e) => setNote(e.target.value)} />
-        <button className="primary" onClick={saveNote}>{marked ? "Сохранено ✓" : "Сохранить заметку"}</button>
-      </div>
-
-      {/* Case annotations (Phase 4): timestamped investigator notes / suspect
-          flags tied to this node — the raw material of the case narrative. */}
+      {/* Case notes (Phase 4): timestamped investigator notes / suspect flags
+          tied to this node — the raw material of the case narrative. */}
       <div className="annbox">
-        <strong>Аннотации дела</strong>
+        <strong>Заметки</strong>
         {nodeAnnotations.length > 0 && (
           <ul className="annlist">
             {nodeAnnotations.slice().sort((a, b) => b.createdAt - a.createdAt).map((a) => (
@@ -488,7 +473,7 @@ function OverviewTab({
         )}
         <textarea
           className="anninput"
-          placeholder="комментарий по узлу для отчёта…"
+          placeholder="заметка по узлу для отчёта…"
           rows={2}
           value={annText}
           onChange={(e) => setAnnText(e.target.value)}

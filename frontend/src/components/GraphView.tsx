@@ -131,7 +131,7 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       const risky = nodeIsRisky(n.tag, n.entityName);
       const ann = annFlags.get(n.id);
       const annGlyph = ann?.suspect ? "🚩" : ann?.note ? "📝" : "";
-      const marker = (annGlyph ? `\n${annGlyph} аннотация` : "") + (n.note ? `\n📌 ${n.note}` : t ? `\n⚑ ${t.label}` : "");
+      const marker = (annGlyph ? `\n${annGlyph} заметка` : "") + (t ? `\n⚑ ${t.label}` : "");
       // Multi-network wallets: colour the node as pie slices, one per network,
       // so a node active on e.g. Arbitrum+BSC reads as blue+yellow at a glance.
       const nets = n.kind === "Wallet" && !t ? (n.nets ?? []) : [];
@@ -144,7 +144,7 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
           color: t ? t.color : n.color,
           url: n.explorerUrl ?? "",
           size: 22 + Math.min(28, n.degree * 3),
-          marked: t || n.note ? 1 : 0,
+          marked: t ? 1 : 0,
           risk: risky ? 1 : 0,
           suspect: ann?.suspect ? 1 : 0,
           annotated: ann ? 1 : 0,
