@@ -23,6 +23,9 @@ interface Props {
   onToggleDelete: () => void;
   theme: Theme;
   onToggleTheme: () => void;
+  onExportJson: () => void;
+  onExportPng: () => void;
+  onExportReport: () => void;
 }
 
 const MAX_RESULTS = 12;
@@ -32,11 +35,13 @@ export default function Toolbar({
   name, dirty, onEditTitle, nodes, onFocusNode,
   canUndo, canRedo, onUndo, onRedo,
   hasGraph, onForceLayout, onStructure, mergeMode, onToggleMerge, deleteMode, onToggleDelete,
-  theme, onToggleTheme,
+  theme, onToggleTheme, onExportJson, onExportPng, onExportReport,
 }: Props) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exportBlur = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -114,6 +119,22 @@ export default function Toolbar({
         <button className="tb-btn" onClick={onStructure} disabled={!hasGraph} title="Иерархия (без пересечений)">⌗</button>
         <button className={`tb-btn${mergeMode ? " active" : ""}`} onClick={onToggleMerge} disabled={!hasGraph} title="Объединить узлы в сущность">⧉</button>
         <button className={`tb-btn tb-del${deleteMode ? " active" : ""}`} onClick={onToggleDelete} disabled={!hasGraph} title="Удалить несколько узлов">🗑</button>
+      </div>
+
+      <div className="tb-sep" />
+
+      <div className="tb-export"
+        onBlur={() => { exportBlur.current = setTimeout(() => setExportOpen(false), 150); }}
+        onMouseDown={() => { if (exportBlur.current) clearTimeout(exportBlur.current); }}>
+        <button className="tb-btn" disabled={!hasGraph} title="Экспорт дела"
+          onClick={() => setExportOpen((v) => !v)}>⭳</button>
+        {exportOpen && hasGraph && (
+          <div className="tb-export-menu">
+            <button onClick={() => { setExportOpen(false); onExportReport(); }}>📄 Отчёт (печать / PDF)</button>
+            <button onClick={() => { setExportOpen(false); onExportPng(); }}>🖼 Снимок графа (PNG)</button>
+            <button onClick={() => { setExportOpen(false); onExportJson(); }}>{"{ }"} Данные дела (JSON)</button>
+          </div>
+        )}
       </div>
 
       <div className="tb-sep" />

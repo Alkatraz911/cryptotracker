@@ -15,6 +15,7 @@ import { deleteAnnotation, emptyGraph, finalize, mergeEntities, mergeGraphs, nor
 import { walletLabel, type BuiltGraph, type GAnnotation, type GEdge, type GNode } from "./lib/graph";
 import { addressUrl, networkColor, type Network } from "./lib/explorers";
 import { applyTheme, getStoredTheme, type Theme } from "./lib/theme";
+import { exportCaseJson, exportCasePng, openCaseReport } from "./lib/caseExport";
 
 type PromptCfg = {
   title: string; label?: string; defaultValue?: string; confirmText?: string;
@@ -134,6 +135,32 @@ export default function App() {
   // tracks whether a graph is currently in memory (for in-session re-login)
   const hasGraph = useRef(false);
   useEffect(() => { hasGraph.current = graph.nodes.length > 0; }, [graph]);
+
+  // GraphView registers a whole-graph PNG snapshotter here (for the case export).
+  const pngRef = useRef<(() => string) | null>(null);
+
+  // ── Case export (feature #2, part 3) ───────────────────────────────────────
+  // The data-source list (with timestamps) is best-effort; a failure doesn't
+  // block the export.
+  async function fetchSources() {
+    try { return (await store.sourceHealth()).sources; } catch { return []; }
+  }
+  async function exportJson() {
+    exportCaseJson(name, graph, { sources: await fetchSources(), chats });
+    store.logUsage("Экспорт дела (JSON)");
+  }
+  function exportPng() {
+    const url = pngRef.current?.();
+    if (!url) { flash("Граф пуст — нечего экспортировать"); return; }
+    exportCasePng(name, url);
+    store.logUsage("Экспорт дела (PNG)");
+  }
+  async function exportReport() {
+    const png = pngRef.current?.() ?? null;
+    const ok = openCaseReport(name, graph, png, { sources: await fetchSources(), chats });
+    if (!ok) flash("Разрешите всплывающие окна, чтобы сформировать отчёт");
+    else store.logUsage("Экспорт дела (отчёт)");
+  }
 
   useEffect(() => {
     if (!store.isAuthed()) { setReady(true); return; }
@@ -593,6 +620,9 @@ export default function App() {
           onToggleDelete={() => toggleSelectMode("delete")}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onExportJson={exportJson}
+          onExportPng={exportPng}
+          onExportReport={exportReport}
         />
 
         <div className="canvas">
@@ -624,6 +654,7 @@ export default function App() {
               mergeMode={selectMode !== null}
               onMergeSelection={setSelection}
               theme={theme}
+              pngRef={pngRef}
             />
           )}
         </div>

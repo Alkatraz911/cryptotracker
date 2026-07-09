@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import cytoscape from "cytoscape";
 // @ts-expect-error - cytoscape-dagre ships no types
@@ -39,6 +39,8 @@ interface Props {
   mergeMode: boolean;
   onMergeSelection: (ids: string[]) => void;
   theme: "dark" | "light";
+  // Registers a PNG snapshot function (whole graph) for the case export.
+  pngRef?: MutableRefObject<(() => string) | null>;
 }
 
 // Module-level constant — stable reference prevents CytoscapeComponent from
@@ -51,7 +53,7 @@ const ZMIN = 0.02, ZMAX = 10;
 const zoomToSlider = (z: number) => Math.max(0, Math.min(100, (100 * Math.log(z / ZMIN)) / Math.log(ZMAX / ZMIN)));
 const sliderToZoom = (s: number) => ZMIN * Math.pow(ZMAX / ZMIN, s / 100);
 
-export default function GraphView({ graph, onSelect, selectedId, focusId, onPositionsSave, layoutKey, structureKey, mergeMode, onMergeSelection, theme }: Props) {
+export default function GraphView({ graph, onSelect, selectedId, focusId, onPositionsSave, layoutKey, structureKey, mergeMode, onMergeSelection, theme, pngRef }: Props) {
   const c = GRAPH_COLORS[theme];
   const cyRef = useRef<any>(null);
   // Initialize to the current layoutKey so the re-layout effect only fires on
@@ -403,6 +405,9 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       style={{ width: "100%", height: "100%" }}
       cy={(cy: any) => {
         cyRef.current = cy;
+        // Expose a whole-graph PNG snapshot for the case export (opaque bg so it
+        // isn't transparent in a printed report).
+        if (pngRef) pngRef.current = () => cy.png({ output: "base64uri", full: true, scale: 2, bg: c.bg });
         cy.removeAllListeners();
         cy.autounselectify(refs.current.mergeMode); // honour select mode on a fresh instance
         // (Re)attach a ResizeObserver to the (possibly new) container element.

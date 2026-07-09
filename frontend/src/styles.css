@@ -554,6 +554,19 @@ button.danger:hover { background: var(--danger-hover); }
 .tb-btn.active { background: var(--gold); color: var(--bg-card); border-color: var(--gold); }
 .tb-sep { width: 1px; height: 22px; background: var(--border-strong); margin: 0 2px; }
 
+/* export dropdown */
+.tb-export { position: relative; display: flex; }
+.tb-export-menu {
+  position: absolute; top: 115%; right: 0; z-index: 30; min-width: 210px;
+  background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: 8px;
+  box-shadow: 0 8px 28px var(--shadow); padding: 4px;
+}
+.tb-export-menu button {
+  display: block; width: 100%; text-align: left; margin: 0; padding: 8px 10px;
+  background: none; border: 0; border-radius: 6px; color: var(--text); font-size: 12px; cursor: pointer;
+}
+.tb-export-menu button:hover { background: var(--bg-hover); }
+
 /* ── docked right side panel ───────────────────────────────────────────────── */
 .sidepanel {
   width: 630px; flex-shrink: 0; height: 100vh;
