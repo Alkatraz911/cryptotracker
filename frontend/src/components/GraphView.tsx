@@ -75,6 +75,9 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
   // Custom smooth wheel zoom + slider state.
   const sliderRef = useRef<HTMLInputElement>(null);
   const wheelState = useRef<{ target: number; rx: number; ry: number; raf: number }>({ target: 1, rx: 0, ry: 0, raf: 0 });
+  // The container the wheel handler is bound to, so we bind exactly once per
+  // container (react-cytoscapejs re-runs the cy callback on every update).
+  const wheelBound = useRef<{ el: HTMLElement; handler: (e: WheelEvent) => void } | null>(null);
 
   // Zoom to an absolute level while keeping the rendered point (rx,ry) fixed.
   // Manual pan math via cy.viewport — robust after a manual pan (cy.zoom's
@@ -87,22 +90,14 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
     const mx = (rx - pan.x) / cur, my = (ry - pan.y) / cur; // model point under (rx,ry)
     cy.viewport({ zoom: z, pan: { x: rx - mx * z, y: ry - my * z } });
   }
-  // Absolute zoom from the slider / buttons: anchor on the GRAPH's own centre
-  // (not the screen centre) so the graph scales in place instead of sliding
-  // across the screen when the view has been panned.
+  // Absolute zoom from the slider / buttons: anchor on the SCREEN centre so the
+  // point the user is looking at stays put. (Anchoring on the graph's bounding
+  // box shifted the view whenever a node was added far away, moving the bbox.)
   function setZoomLevel(level: number) {
     const cy = cyRef.current;
     if (!cy) return;
     const z = Math.max(ZMIN, Math.min(ZMAX, level));
-    const els = cy.elements();
-    let rx = cy.width() / 2, ry = cy.height() / 2;
-    if (els.length) {
-      const bb = els.boundingBox();
-      const pan = cy.pan(), cur = cy.zoom();
-      rx = ((bb.x1 + bb.x2) / 2) * cur + pan.x;
-      ry = ((bb.y1 + bb.y2) / 2) * cur + pan.y;
-    }
-    zoomAt(z, rx, ry);
+    zoomAt(z, cy.width() / 2, cy.height() / 2);
     wheelState.current.target = z; // keep the smooth-zoom target in sync
   }
 
@@ -473,31 +468,37 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
         // Custom smooth, coalesced wheel zoom toward the cursor. Cytoscape's
         // built-in wheel zoom applies one discrete step per event → jerky on fast
         // scroll; we accumulate a target and ease toward it once per frame.
-        if (wheelState.current.raf) cancelAnimationFrame(wheelState.current.raf);
-        wheelState.current = { target: cy.zoom(), rx: 0, ry: 0, raf: 0 };
+        if (wheelState.current.raf) { cancelAnimationFrame(wheelState.current.raf); wheelState.current.raf = 0; }
         cy.userZoomingEnabled(false);
+        // Bind the DOM wheel handler ONCE per container. react-cytoscapejs re-runs
+        // this callback on every update and cy.removeAllListeners() does NOT remove
+        // DOM listeners, so re-adding here would stack handlers — each wheel event
+        // would then zoom several times and drift the graph. The handler reads
+        // wheelState.current live, so a single binding always uses fresh state.
         const cont = cy.container();
-        if (cont) {
-          const st = wheelState.current;
-          cont.addEventListener("wheel", (ev: WheelEvent) => {
+        if (cont && wheelBound.current?.el !== cont) {
+          if (wheelBound.current) wheelBound.current.el.removeEventListener("wheel", wheelBound.current.handler);
+          const handler = (ev: WheelEvent) => {
             ev.preventDefault();
+            const st = wheelState.current;
             const rect = cont.getBoundingClientRect();
             st.rx = ev.clientX - rect.left;
             st.ry = ev.clientY - rect.top;
             st.target = Math.max(ZMIN, Math.min(ZMAX, st.target * Math.exp(-ev.deltaY * 0.0012)));
             if (!st.raf) {
               const stepZoom = () => {
-                const cur = cy.zoom();
-                if (Math.abs(st.target - cur) < 0.003) {
-                  zoomAt(st.target, st.rx, st.ry);
-                  st.raf = 0; return;
-                }
+                const cy2 = cyRef.current;
+                if (!cy2) { st.raf = 0; return; }
+                const cur = cy2.zoom();
+                if (Math.abs(st.target - cur) < 0.003) { zoomAt(st.target, st.rx, st.ry); st.raf = 0; return; }
                 zoomAt(cur + (st.target - cur) * 0.3, st.rx, st.ry);
                 st.raf = requestAnimationFrame(stepZoom);
               };
               st.raf = requestAnimationFrame(stepZoom);
             }
-          }, { passive: false });
+          };
+          cont.addEventListener("wheel", handler, { passive: false });
+          wheelBound.current = { el: cont, handler };
         }
         // On a remount (node add/remove): keep the camera exactly where it was;
         // only fit for a fresh graph or a project switch (little/no id overlap).
