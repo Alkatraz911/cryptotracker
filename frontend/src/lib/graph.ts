@@ -66,6 +66,25 @@ export interface GNode {
   // edges, kept so the merge can be reversed.
   mergedFrom?: GNode[];
   mergedEdges?: GEdge[];
+  // Aggregated Tx node: several transactions between the same two addresses folded
+  // into one circle (see collapseTransactions). Carries the folded transactions
+  // so they can be listed in the panel and the fold reversed.
+  aggregated?: boolean;
+  members?: AggMember[];
+  tsFrom?: number; // earliest folded tx time (ms)
+  tsTo?: number;   // latest folded tx time (ms)
+}
+
+// One transaction folded into an aggregated Tx node.
+export interface AggMember {
+  hash: string;
+  net?: Network;
+  amount?: number;
+  coin?: string;
+  timestamp?: number;
+  explorerUrl?: string | null;
+  x?: number;
+  y?: number;
 }
 
 export type EdgeType =

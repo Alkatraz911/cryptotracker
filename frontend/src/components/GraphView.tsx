@@ -12,6 +12,14 @@ import { tagById, nodeIsRisky } from "../lib/tags";
 const fmtEdgeDate = (ts: number) =>
   new Date(ts).toLocaleDateString(undefined, { year: "2-digit", month: "2-digit", day: "2-digit" });
 
+// Period label for an aggregated Tx edge: "dd.mm.yy–dd.mm.yy" (or a single date).
+const fmtPeriod = (from?: number, to?: number) => {
+  if (from == null && to == null) return "";
+  if (from == null || to == null) return fmtEdgeDate((from ?? to)!);
+  const a = fmtEdgeDate(from), b = fmtEdgeDate(to);
+  return a === b ? a : `${a}–${b}`;
+};
+
 const MAX_PIE = 5; // pie slices for multi-network wallet nodes
 
 // Cytoscape can't read CSS variables, so mirror the theme palette here. Keep
@@ -145,11 +153,12 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
           kind: n.kind,
           color: t ? t.color : n.color,
           url: n.explorerUrl ?? "",
-          size: 22 + Math.min(28, n.degree * 3),
+          size: n.aggregated ? 30 : 22 + Math.min(28, n.degree * 3),
           marked: t ? 1 : 0,
           risk: risky ? 1 : 0,
           suspect: ann?.suspect ? 1 : 0,
           annotated: ann ? 1 : 0,
+          agg: n.aggregated ? 1 : 0,
           multi,
         },
       };
@@ -174,8 +183,12 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       const s = nodeById.get(e.source);
       const t = nodeById.get(e.target);
       const txNode = s?.kind === "Tx" ? s : t?.kind === "Tx" ? t : undefined;
+      // An aggregated Tx shows the PERIOD it spans on its edges; a plain Tx shows
+      // its single date.
       const label = txNode
-        ? (txNode.timestamp != null ? fmtEdgeDate(txNode.timestamp) : "")
+        ? (txNode.aggregated
+            ? fmtPeriod(txNode.tsFrom, txNode.tsTo)
+            : txNode.timestamp != null ? fmtEdgeDate(txNode.timestamp) : "")
         : e.type;
       return { data: { id: e.id, source: e.source, target: e.target, label } };
     });
@@ -339,6 +352,14 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
     { selector: 'node[kind = "User"]', style: { shape: "round-rectangle" } },
     { selector: 'node[kind = "IP"]', style: { shape: "diamond" } },
     { selector: 'node[kind = "Tx"]', style: { shape: "ellipse", "font-size": 8 } },
+    // Aggregated Tx (folded transfers): double ring + total shown ABOVE the circle.
+    {
+      selector: "node[agg = 1]",
+      style: {
+        shape: "ellipse", "border-width": 2, "border-color": c.text, "border-opacity": 0.6,
+        "text-valign": "top", "text-margin-y": -3, "font-size": 9, "font-weight": "bold",
+      },
+    },
     { selector: 'node[kind = "Entity"]', style: { shape: "hexagon", "font-size": 10, "border-width": 2, "border-color": "#eab308" } },
     {
       // Multi-network wallet: split the node into network-coloured pie slices.

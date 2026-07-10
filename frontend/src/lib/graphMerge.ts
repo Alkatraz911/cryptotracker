@@ -62,6 +62,105 @@ export function annotationFlags(graph: BuiltGraph): Map<string, { note: boolean;
   return m;
 }
 
+// ── Transaction aggregation (collapse many tx between the same two addresses) ──
+const fmtAmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+const AGG_PREFIX = "AGG:";
+
+export function hasAggregated(graph: BuiltGraph): boolean {
+  return graph.nodes.some((n) => n.aggregated);
+}
+
+// Fold every group of Tx nodes that share the same (sender → recipient) wallet
+// pair into a single aggregated Tx node: one circle carrying the total + period,
+// with two edges (sender → agg → recipient). Groups of one are left untouched.
+export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
+  const srcOf = new Map<string, string>(); // txId → sender wallet (SENT: wallet → tx)
+  const dstOf = new Map<string, string>(); // txId → recipient wallet (TO: tx → wallet)
+  for (const e of graph.edges) {
+    if (e.type === "SENT") srcOf.set(e.target, e.source);
+    else if (e.type === "TO") dstOf.set(e.source, e.target);
+  }
+
+  const groups = new Map<string, GNode[]>();
+  for (const n of graph.nodes) {
+    if (n.kind !== "Tx" || n.aggregated) continue;
+    const s = srcOf.get(n.id), d = dstOf.get(n.id);
+    if (!s || !d) continue; // only plain wallet→tx→wallet transfers are foldable
+    const key = `${s}=>${d}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(n);
+  }
+
+  const remove = new Set<string>();
+  const newNodes: GNode[] = [];
+  const newEdges: GEdge[] = [];
+  for (const [key, members] of groups) {
+    if (members.length < 2) continue;
+    const [srcId, dstId] = key.split("=>");
+    for (const m of members) remove.add(m.id);
+
+    const coins = new Set(members.map((m) => m.coin ?? ""));
+    const coin = coins.size === 1 ? [...coins][0] : "";
+    const total = coin ? members.reduce((s, m) => s + (m.amount ?? 0), 0) : undefined;
+    const tss = members.map((m) => m.timestamp).filter((x): x is number => x != null);
+    const xs = members.map((m) => m.x).filter((x): x is number => x != null);
+    const ys = members.map((m) => m.y).filter((y): y is number => y != null);
+    const aggId = `${AGG_PREFIX}${srcId}=>${dstId}`;
+
+    newNodes.push({
+      id: aggId, kind: "Tx", aggregated: true,
+      label: `${total != null ? `${fmtAmt(total)} ${coin}` : `${members.length} перев.`}\n▣ ${members.length}`,
+      net: members[0].net, color: kindColor("Tx"), degree: 2,
+      amount: total, coin: coin || undefined,
+      tsFrom: tss.length ? Math.min(...tss) : undefined,
+      tsTo: tss.length ? Math.max(...tss) : undefined,
+      members: members.map((m) => ({
+        hash: m.hash!, net: m.net, amount: m.amount, coin: m.coin,
+        timestamp: m.timestamp, explorerUrl: m.explorerUrl, x: m.x, y: m.y,
+      })),
+      x: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : undefined,
+      y: ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : undefined,
+    });
+    newEdges.push({ id: `${srcId}->${aggId}`, source: srcId, target: aggId, type: "SENT" });
+    newEdges.push({ id: `${aggId}->${dstId}`, source: aggId, target: dstId, type: "TO" });
+  }
+
+  if (!newNodes.length) return graph; // nothing to fold
+  const nodes = graph.nodes.filter((n) => !remove.has(n.id)).concat(newNodes);
+  const edges = graph.edges.filter((e) => !remove.has(e.source) && !remove.has(e.target)).concat(newEdges);
+  return finalize(nodes, edges, graph.warnings, graph.annotations);
+}
+
+// Reverse collapseTransactions: unfold aggregated Tx nodes back into their member
+// transactions (restoring their saved positions).
+export function expandTransactions(graph: BuiltGraph): BuiltGraph {
+  const remove = new Set<string>();
+  const newNodes: GNode[] = [];
+  const newEdges: GEdge[] = [];
+  for (const n of graph.nodes) {
+    if (!n.aggregated || !n.members) continue;
+    const m = n.id.match(/^AGG:(.+)=>(.+)$/);
+    if (!m) continue;
+    remove.add(n.id);
+    const [, srcId, dstId] = m;
+    for (const mem of n.members) {
+      const txId = `T:${mem.hash}`;
+      newNodes.push({
+        id: txId, kind: "Tx",
+        label: mem.amount != null ? `${fmtAmt(mem.amount)} ${mem.coin ?? ""}` : "tx",
+        net: mem.net, hash: mem.hash, amount: mem.amount, coin: mem.coin,
+        color: kindColor("Tx"), degree: 1,
+        explorerUrl: mem.explorerUrl, timestamp: mem.timestamp, x: mem.x, y: mem.y,
+      });
+      newEdges.push({ id: `${srcId}->${txId}`, source: srcId, target: txId, type: "SENT" });
+      newEdges.push({ id: `${txId}->${dstId}`, source: txId, target: dstId, type: "TO" });
+    }
+  }
+  if (!newNodes.length) return graph;
+  const nodes = graph.nodes.filter((n) => !remove.has(n.id)).concat(newNodes);
+  const edges = graph.edges.filter((e) => !remove.has(e.source) && !remove.has(e.target)).concat(newEdges);
+  return finalize(nodes, edges, graph.warnings, graph.annotations);
+}
+
 // Remove nodes AND the transaction (Tx) nodes directly attached to them — i.e.
 // the transactions going to/from a deleted wallet also go away, instead of being
 // left as orphaned tx blobs. Other wallets on those transactions are kept.

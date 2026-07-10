@@ -14,7 +14,7 @@ import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
-import { deleteAnnotation, emptyGraph, finalize, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
+import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, hasAggregated, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
 import { walletLabel, type BuiltGraph, type GAnnotation, type GEdge, type GNode } from "./lib/graph";
 import { addressUrl, networkColor, type Network } from "./lib/explorers";
 import { applyTheme, getStoredTheme, type Theme } from "./lib/theme";
@@ -399,6 +399,15 @@ export default function App() {
   function saveAnnotation(ann: GAnnotation) { commit(upsertAnnotation(graph, ann)); }
   function removeAnnotation(id: string) { commit(deleteAnnotation(graph, id)); }
 
+  // Fold/unfold multiple transfers between the same two addresses into one Tx
+  // circle (undoable). Closes the panel if a now-folded Tx node was selected.
+  function toggleCollapseTx() {
+    const next = hasAggregated(graph) ? expandTransactions(graph) : collapseTransactions(graph);
+    if (next === graph) { flash("Нет повторяющихся переводов между одними и теми же адресами"); return; }
+    commit(next);
+    if (selectedId && !next.nodes.some((n) => n.id === selectedId)) setSelectedId(null);
+  }
+
   // Run a navigation (new/open) but offer to save first if there are unsaved changes.
   function requestNav(fn: () => void) {
     if (dirty && graph.nodes.length > 0) setUnsaved({ proceed: fn });
@@ -621,6 +630,8 @@ export default function App() {
           onToggleMerge={() => toggleSelectMode("merge")}
           deleteMode={selectMode === "delete"}
           onToggleDelete={() => toggleSelectMode("delete")}
+          collapsed={hasAggregated(graph)}
+          onToggleCollapse={toggleCollapseTx}
           theme={theme}
           onToggleTheme={toggleTheme}
           onExportJson={exportJson}

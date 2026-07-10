@@ -64,6 +64,7 @@ export default function SidePanel(props: Props) {
 
   const isWallet = node.kind === "Wallet" && !!node.address;
   const isTx = node.kind === "Tx";
+  const isAgg = isTx && !!node.aggregated; // folded multi-transfer Tx node
   const addr = node.address?.toLowerCase();
   const risky = nodeIsRisky(node.tag, node.entityName);
 
@@ -149,7 +150,7 @@ export default function SidePanel(props: Props) {
   // On node change: seed from the persistent cache; only fetch networks we have
   // not loaded before (so a node opened earlier never re-fetches).
   useEffect(() => {
-    setTab("overview");
+    setTab(isAgg ? "txs" : "overview");
     const seededTx: Record<string, NetState> = {};
     const seededBal: Record<string, BalState> = {};
     for (const [net, c] of Object.entries(cache)) {
@@ -228,6 +229,13 @@ export default function SidePanel(props: Props) {
               title={balanceTitle(curBal?.bal)} />
             <Metric label="Владелец" loading={txLoading && !node.entityName} value={node.entityName ?? NA} />
           </>
+        ) : isAgg ? (
+          <>
+            <Metric label="Сумма" value={node.amount != null ? `${fmtAmt(node.amount)} ${node.coin ?? ""}` : `${node.members?.length ?? 0} перев.`} />
+            <Metric label="Переводов" value={String(node.members?.length ?? 0)} />
+            <Metric label="Период" value={node.tsFrom ? `${fmtDate(node.tsFrom)} — ${fmtDate(node.tsTo)}` : NA} />
+            <Metric label="Сеть" value={node.net && node.net !== "UNKNOWN" ? node.net : NA} />
+          </>
         ) : isTx ? (
           <>
             <Metric label="Сумма" value={node.amount != null ? fmtAmt(node.amount) : NA} />
@@ -246,6 +254,7 @@ export default function SidePanel(props: Props) {
       <div className="sp-tabs">
         <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Обзор</button>
         {isWallet && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>Транзакции{txs ? ` (${txs.length})` : ""}</button>}
+        {isAgg && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>Транзакции ({node.members?.length ?? 0})</button>}
         {isWallet && <button className={tab === "links" ? "active" : ""} onClick={() => setTab("links")}>Связи</button>}
         <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>ИИ-чат{chat.length ? ` (${chat.filter((m) => m.role === "user").length || "•"})` : ""}</button>
       </div>
@@ -268,6 +277,7 @@ export default function SidePanel(props: Props) {
             labelByAddr={labelByAddr}
           />
         )}
+        {tab === "txs" && isAgg && <AggTxTab node={node} />}
         {tab === "links" && isWallet && (
           <LinksTab txs={txs} addr={addr} onAdd={onAdd} onFocus={onFocus} labelByAddr={labelByAddr} />
         )}
@@ -534,6 +544,38 @@ const PAGE = 25;
 // filter over the fully-loaded history.
 const NATIVE_ASSETS = new Set(["ETH", "BNB", "POL", "MATIC", "TRX", "SOL"]);
 const isNativeAsset = (a?: string) => NATIVE_ASSETS.has((a ?? "").toUpperCase());
+
+// Transactions folded into an aggregated Tx node — listed like a node's tx tab,
+// but read straight from the node's `members` (no loading, already in memory).
+function AggTxTab({ node }: { node: GNode }) {
+  const members = (node.members ?? []).slice().sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  return (
+    <div className="tx-tab">
+      <div className="picker-header">
+        <span>{members.length} свёрнутых переводов{node.amount != null ? ` · Σ ${fmtAmt(node.amount)} ${node.coin ?? ""}` : ""}</span>
+      </div>
+      <div className="transfer-picker-wrap wide" style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
+        <table className="transfer-table">
+          <thead>
+            <tr><th>Дата</th><th className="num">Сумма</th><th>Хеш</th></tr>
+          </thead>
+          <tbody>
+            {members.map((m, i) => (
+              <tr key={i}>
+                <td className="tdate">{fmtDate(m.timestamp)}</td>
+                <td className="num tamt">{fmtAmt(m.amount)} {m.coin ?? ""}</td>
+                <td>
+                  <span className="mono">{m.hash ? `${m.hash.slice(0, 10)}…` : "—"}</span>
+                  {m.explorerUrl && <a className="txlink" href={m.explorerUrl} target="_blank" rel="noopener" title="Открыть в эксплорере" onClick={(e) => e.stopPropagation()}>↗</a>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 function TxTab({
   activeNet, onNet, txs, busy, err, diag, status, addr, onLoadWindow, onRefresh, onAddSelected, labelByAddr,

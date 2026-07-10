@@ -21,6 +21,8 @@ interface Props {
   onToggleMerge: () => void;
   deleteMode: boolean;
   onToggleDelete: () => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   theme: Theme;
   onToggleTheme: () => void;
   onExportJson: () => void;
@@ -35,6 +37,7 @@ export default function Toolbar({
   name, dirty, onEditTitle, nodes, onFocusNode,
   canUndo, canRedo, onUndo, onRedo,
   hasGraph, onForceLayout, onStructure, mergeMode, onToggleMerge, deleteMode, onToggleDelete,
+  collapsed, onToggleCollapse,
   theme, onToggleTheme, onExportJson, onExportPng, onExportReport,
 }: Props) {
   const [q, setQ] = useState("");
@@ -119,6 +122,8 @@ export default function Toolbar({
         <button className="tb-btn" onClick={onStructure} disabled={!hasGraph} title="Иерархия (без пересечений)">⌗</button>
         <button className={`tb-btn${mergeMode ? " active" : ""}`} onClick={onToggleMerge} disabled={!hasGraph} title="Объединить узлы в сущность">⧉</button>
         <button className={`tb-btn tb-del${deleteMode ? " active" : ""}`} onClick={onToggleDelete} disabled={!hasGraph} title="Удалить несколько узлов">🗑</button>
+        <button className={`tb-btn${collapsed ? " active" : ""}`} onClick={onToggleCollapse} disabled={!hasGraph}
+          title={collapsed ? "Развернуть переводы" : "Свернуть переводы между одними адресами в один"}>⇉</button>
       </div>
 
       <div className="tb-sep" />
