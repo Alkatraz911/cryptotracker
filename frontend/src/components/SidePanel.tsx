@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 // AI chat is opened on demand — load it lazily so it isn't in the initial bundle.
 const AiChat = lazy(() => import("./AiChat"));
 import { store, type AiMsg, type NodeNetCache, type SourceStatus, type Transfer, type WalletBalance } from "../lib/store";
-import { transfersSubgraph, bridgeSubgraph, annotationsForNode } from "../lib/graphMerge";
+import { transfersSubgraph, bridgeSubgraph, annotationsForNodeView } from "../lib/graphMerge";
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
 import { ALL_NETWORKS, networkColor, txUrl, walletNodeId, type Network } from "../lib/explorers";
 import { nodeIsRisky } from "../lib/tags";
@@ -334,7 +334,7 @@ function OverviewTab({
   const canResolve = isTx && !!node.hash && !!bridgeChainId;
   const preferBridge = resolver ? bridge : undefined;
   // Case notes (Phase 4) for this node.
-  const nodeAnnotations = annotationsForNode(graph, node.id);
+  const nodeAnnotations = annotationsForNodeView(graph, node);
   const [annText, setAnnText] = useState("");
   const [annKind, setAnnKind] = useState<AnnotationKind>("note");
   const [confirmDel, setConfirmDel] = useState(false);

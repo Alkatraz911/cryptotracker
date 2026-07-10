@@ -40,6 +40,15 @@ export function annotationsForNode(graph: BuiltGraph, nodeId: string): GAnnotati
   return (graph.annotations ?? []).filter((a) => a.nodeIds.includes(nodeId));
 }
 
+// Annotations relevant to a node in the CURRENT view: its own, plus (for an
+// aggregate Tx node) any annotation left on a folded member transaction — so
+// folding a graph never hides the notes attached to the transactions inside.
+export function annotationsForNodeView(graph: BuiltGraph, node: GNode): GAnnotation[] {
+  const ids = new Set<string>([node.id]);
+  if (node.aggregated && node.members) for (const m of node.members) ids.add(`T:${m.hash}`);
+  return (graph.annotations ?? []).filter((a) => a.nodeIds.some((id) => ids.has(id)));
+}
+
 export function upsertAnnotation(graph: BuiltGraph, ann: GAnnotation): BuiltGraph {
   const rest = (graph.annotations ?? []).filter((a) => a.id !== ann.id);
   return { ...graph, annotations: [...rest, ann] };
@@ -50,13 +59,22 @@ export function deleteAnnotation(graph: BuiltGraph, id: string): BuiltGraph {
 }
 
 // Per-node flags for canvas styling: which nodes carry a note / a suspect mark.
+// A note on a folded member transaction is attributed to its aggregate node, so
+// the glyph still shows on the circle while collapsed.
 export function annotationFlags(graph: BuiltGraph): Map<string, { note: boolean; suspect: boolean }> {
   const m = new Map<string, { note: boolean; suspect: boolean }>();
+  const present = new Set(graph.nodes.map((n) => n.id));
+  const memberToAgg = new Map<string, string>(); // folded "T:hash" → aggregate node id
+  for (const n of graph.nodes) {
+    if (n.aggregated && n.members) for (const mem of n.members) memberToAgg.set(`T:${mem.hash}`, n.id);
+  }
   for (const a of graph.annotations ?? []) {
     for (const id of a.nodeIds) {
-      const f = m.get(id) ?? { note: false, suspect: false };
+      const target = present.has(id) ? id : memberToAgg.get(id);
+      if (!target) continue;
+      const f = m.get(target) ?? { note: false, suspect: false };
       if (a.kind === "suspect") f.suspect = true; else f.note = true;
-      m.set(id, f);
+      m.set(target, f);
     }
   }
   return m;
