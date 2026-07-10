@@ -14,7 +14,7 @@ import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
-import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
+import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, hasAggregated, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
 import { walletLabel, type BuiltGraph, type GAnnotation, type GEdge, type GNode } from "./lib/graph";
 import { addressUrl, networkColor, type Network } from "./lib/explorers";
 import { applyTheme, getStoredTheme, type Theme } from "./lib/theme";
@@ -195,7 +195,7 @@ export default function App() {
 
   function applyDraft(d: Draft | null) {
     if (!d) return;
-    setGraph(collapsed ? collapseTransactions(d.graph) : d.graph);
+    setGraph(applyView(d.graph));
     setCurrentId(d.currentId);
     setName(d.name);
     setDirty(!d.currentId);
@@ -256,9 +256,17 @@ export default function App() {
     setGraph(next);
     setDirty(true);
   }
+  // Bring a graph into the current view. In the aggregated (default) view we
+  // re-fold from scratch — expand any existing aggregates first so a new transfer
+  // MERGES into its group's circle instead of hanging beside it as a lone tx.
+  // Skip the expand pass when there's nothing aggregated yet (cheap short-circuit).
+  function applyView(g: BuiltGraph): BuiltGraph {
+    if (!collapsed) return g;
+    return collapseTransactions(hasAggregated(g) ? expandTransactions(g) : g);
+  }
   // Adding a subgraph: fold repeated transfers automatically while in the default
-  // aggregated view, so new transactions come in already collapsed.
-  function applyGraph(g: BuiltGraph) { commit(collapsed ? collapseTransactions(g) : g); }
+  // aggregated view, so new transactions come in already collapsed + merged.
+  function applyGraph(g: BuiltGraph) { commit(applyView(g)); }
 
   function undo() {
     if (!past.length) return;
@@ -287,7 +295,7 @@ export default function App() {
     fetchingIds.current = new Set();
     const p = await store.getProject(id);
     setCurrentId(p.id); setName(p.name);
-    { const loaded = normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [], p.graph.annotations ?? [])); setGraph(collapsed ? collapseTransactions(loaded) : loaded); }
+    { const loaded = normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [], p.graph.annotations ?? [])); setGraph(applyView(loaded)); }
     setTxCache({}); // session cache; transfers come from the shared store on demand
     resetHistory(); setSelectedId(null); setFocusId(null); setDirty(false);
   }
