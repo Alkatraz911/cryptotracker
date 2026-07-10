@@ -37,6 +37,7 @@ function txRows(graph: BuiltGraph) {
     .map((n) => ({
       hash: n.hash ?? "", net: n.net ?? "", amount: n.amount ?? null,
       coin: n.coin ?? "", timestamp: n.timestamp ?? null, explorerUrl: n.explorerUrl ?? null,
+      source: n.source ?? null, fetchedAt: n.fetchedAt ?? null,
     }))
     .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 }
@@ -83,7 +84,8 @@ function buildReportHtml(name: string, graph: BuiltGraph, pngDataUrl: string | n
   const txRow = (t: ReturnType<typeof txRows>[number]) =>
     `<tr><td class="mono">${t.explorerUrl ? `<a href="${esc(t.explorerUrl)}">${esc(t.hash.slice(0, 18))}…</a>` : esc(t.hash.slice(0, 18)) + "…"}</td>` +
     `<td>${esc(t.net)}</td><td class="num">${t.amount ?? ""} ${esc(t.coin)}</td>` +
-    `<td class="muted">${esc(fmtTs(t.timestamp))}</td></tr>`;
+    `<td class="muted">${esc(fmtTs(t.timestamp))}</td>` +
+    `<td class="muted">${esc(t.source ?? "—")}${t.fetchedAt ? `<br><span style="font-size:10px">${esc(fmtTs(t.fetchedAt))}</span>` : ""}</td></tr>`;
 
   const srcRow = (s: SourceHealth) =>
     `<tr><td>${esc(s.source)}</td><td>${esc(s.status)}</td>` +
@@ -128,7 +130,7 @@ function buildReportHtml(name: string, graph: BuiltGraph, pngDataUrl: string | n
   ${pngDataUrl ? `<h2>Граф</h2><img class="snap" src="${pngDataUrl}" alt="граф">` : ""}
   ${anns.length ? `<h2>Заметки дела</h2><table><thead><tr><th>Тип</th><th>Узлы</th><th>Текст</th><th>Дата</th></tr></thead><tbody>${anns.map(annRow).join("")}</tbody></table>` : ""}
   ${aiBlocks ? `<h2>ИИ-выводы</h2>${aiBlocks}` : ""}
-  ${txs.length ? `<h2>Транзакции (${txs.length})</h2><table><thead><tr><th>Хеш</th><th>Сеть</th><th class="num">Сумма</th><th>Время</th></tr></thead><tbody>${txs.slice(0, 500).map(txRow).join("")}</tbody></table>` : ""}
+  ${txs.length ? `<h2>Транзакции (${txs.length})</h2><table><thead><tr><th>Хеш</th><th>Сеть</th><th class="num">Сумма</th><th>Время</th><th>Источник</th></tr></thead><tbody>${txs.slice(0, 500).map(txRow).join("")}</tbody></table>` : ""}
   ${sources.length ? `<h2>Источники данных</h2><table><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Последний сбой</th></tr></thead><tbody>${sources.map(srcRow).join("")}</tbody></table>` : ""}
 </body></html>`;
 }
@@ -138,7 +140,18 @@ export function openCaseReport(name: string, graph: BuiltGraph, pngDataUrl: stri
   if (!w) return false; // popup blocked
   w.document.write(buildReportHtml(name, graph, pngDataUrl, extras));
   w.document.close();
-  // Give the embedded snapshot a moment to decode before invoking print.
-  setTimeout(() => { try { w.focus(); w.print(); } catch { /* user can print manually */ } }, 400);
+  // Print only once the graph snapshot has actually decoded — a fixed delay
+  // risked printing a blank image for a large graph. A fallback timer guarantees
+  // we never hang if onload never fires (no image / decode error).
+  let printed = false;
+  const print = () => { if (printed) return; printed = true; try { w.focus(); w.print(); } catch { /* user can print manually */ } };
+  const img = w.document.querySelector("img.snap") as HTMLImageElement | null;
+  if (img && !img.complete) {
+    img.onload = print;
+    img.onerror = print;
+    setTimeout(print, 3000); // fallback
+  } else {
+    setTimeout(print, 100); // let layout settle
+  }
   return true;
 }
