@@ -19,12 +19,23 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 8787);
+  const isProd = (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) === 'production';
+  const log = new Logger('Bootstrap');
+
+  // Refuse to boot in production with the default (weak) JWT secret — signing
+  // tokens with a public value is an auth-bypass risk. In dev it's only a warning.
   const secret = config.get<string>('JWT_SECRET', 'dev-secret-change-me');
   if (secret === 'dev-secret-change-me') {
-    new Logger('Bootstrap').warn('JWT_SECRET is the default dev value — set it in .env for real use.');
+    const msg = 'JWT_SECRET is the default dev value — set a strong random secret in .env.';
+    if (isProd) throw new Error(`Refusing to start in production: ${msg}`);
+    log.warn(msg);
+  }
+  // Flag the default local DB credentials in production (rotate before exposing).
+  if (isProd && /:\/\/crypto:crypto@/.test(config.get<string>('DATABASE_URL', ''))) {
+    log.warn('DATABASE_URL uses the default crypto:crypto credentials — change them for production.');
   }
 
   await app.listen(port, '0.0.0.0');
-  new Logger('Bootstrap').log(`CryptoTracker server on http://localhost:${port}`);
+  log.log(`CryptoTracker server on http://localhost:${port}`);
 }
 bootstrap();
