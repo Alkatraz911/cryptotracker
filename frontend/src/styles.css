@@ -441,7 +441,7 @@ button.danger:hover { background: var(--danger-hover); }
 .transfer-table th.num, .transfer-table td.num { text-align: right; }
 .transfer-table th.sortable { cursor: pointer; user-select: none; }
 .transfer-table th.sortable:hover { color: var(--text); }
-.transfer-table tbody tr { background: var(--bg-panel); border-bottom: 1px solid var(--border); cursor: pointer; }
+.transfer-table tbody tr { background: var(--bg-panel); border-bottom: 1px solid var(--border); cursor: pointer; height: 30px; box-sizing: border-box; }
 .transfer-table tbody tr:hover { background: var(--row-hover); }
 .transfer-table tbody tr.sel { background: var(--row-sel); }
 .transfer-table tbody tr.tagged { box-shadow: inset 3px 0 0 var(--gold); }

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 // AI chat is opened on demand — load it lazily so it isn't in the initial bundle.
 const AiChat = lazy(() => import("./AiChat"));
 import { store, type AiMsg, type NodeNetCache, type SourceStatus, type Transfer, type WalletBalance } from "../lib/store";
@@ -538,30 +538,59 @@ function OverviewTab({
   );
 }
 
-// ── Транзакции tab — sortable/filterable/paginated table for the active net ──
-const PAGE = 25;
+// ── Транзакции tab — sortable/filterable, virtual-scrolled table for the net ──
 // Native gas tokens (per supported chain) — used for the Нативные/Токены client
 // filter over the fully-loaded history.
 const NATIVE_ASSETS = new Set(["ETH", "BNB", "POL", "MATIC", "TRX", "SOL"]);
 const isNativeAsset = (a?: string) => NATIVE_ASSETS.has((a ?? "").toUpperCase());
 
+// Fixed transfer-row height (kept in sync with .transfer-table row CSS) so the
+// virtual window can map scroll offset → row index.
+const ROW_H = 30;
+
+// Minimal windowed rendering: only the rows visible in the scroll container are
+// mounted, with spacer rows padding the scroll height. Handles up to the full
+// 2000-row history without paging or thousands of DOM nodes.
+function useVirtualRows(total: number, rowH: number = ROW_H, overscan = 8) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [range, setRange] = useState({ start: 0, end: Math.min(total, 40) });
+  const recompute = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const start = Math.max(0, Math.floor(el.scrollTop / rowH) - overscan);
+    const visible = Math.ceil(el.clientHeight / rowH) + overscan * 2;
+    setRange({ start, end: Math.min(total, start + visible) });
+  }, [total, rowH, overscan]);
+  useEffect(() => { recompute(); }, [recompute]);
+  return {
+    ref, start: range.start, end: range.end, onScroll: recompute,
+    padTop: range.start * rowH, padBottom: Math.max(0, (total - range.end) * rowH),
+  };
+}
+
 // Transactions folded into an aggregated Tx node — listed like a node's tx tab,
 // but read straight from the node's `members` (no loading, already in memory).
 function AggTxTab({ node }: { node: GNode }) {
-  const members = (node.members ?? []).slice().sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  const members = useMemo(
+    () => (node.members ?? []).slice().sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)),
+    [node.members],
+  );
+  const v = useVirtualRows(members.length);
+  const window = members.slice(v.start, v.end);
   return (
     <div className="tx-tab">
       <div className="picker-header">
         <span>{members.length} свёрнутых переводов{node.amount != null ? ` · Σ ${fmtAmt(node.amount)} ${node.coin ?? ""}` : ""}</span>
       </div>
-      <div className="transfer-picker-wrap wide" style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
+      <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll} style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
         <table className="transfer-table">
           <thead>
             <tr><th>Дата</th><th className="num">Сумма</th><th>Хеш</th></tr>
           </thead>
           <tbody>
-            {members.map((m, i) => (
-              <tr key={i}>
+            {v.padTop > 0 && <tr style={{ height: v.padTop }} aria-hidden />}
+            {window.map((m, i) => (
+              <tr key={v.start + i}>
                 <td className="tdate">{fmtDate(m.timestamp)}</td>
                 <td className="num tamt">{fmtAmt(m.amount)} {m.coin ?? ""}</td>
                 <td>
@@ -570,6 +599,7 @@ function AggTxTab({ node }: { node: GNode }) {
                 </td>
               </tr>
             ))}
+            {v.padBottom > 0 && <tr style={{ height: v.padBottom }} aria-hidden />}
           </tbody>
         </table>
       </div>
@@ -602,7 +632,6 @@ function TxTab({
   const [dir, setDir] = useState<"" | "in" | "out">("");
   const [dateFrom, setDateFrom] = useState(""); // yyyy-mm-dd (inclusive)
   const [dateTo, setDateTo] = useState("");     // yyyy-mm-dd (inclusive)
-  const [page, setPage] = useState(0);
   const [sel, setSel] = useState<Set<number>>(new Set());
   // Labels fetched on demand for counterparties on the visible page that weren't
   // enriched at fetch time and aren't labelled graph nodes.
@@ -647,8 +676,7 @@ function TxTab({
   const loading = busy || winBusy;
 
   const assets = useMemo(() => [...new Set(source.map((t) => t.asset).filter(Boolean))] as string[], [source]);
-  useEffect(() => { setPage(0); setSel(new Set()); }, [source]);
-  useEffect(() => { setPage(0); }, [asset, dir, native, token]);
+  useEffect(() => { setSel(new Set()); }, [source]);
 
   const filtered = useMemo(() => {
     let list = source.map((t, i) => ({ t, i }));
@@ -669,16 +697,18 @@ function TxTab({
     return list;
   }, [source, native, token, asset, dir, addr, sortKey, sortDir]);
 
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
-  const pageRows = filtered.slice(page * PAGE, page * PAGE + PAGE);
+  // Virtual scroll: render only the rows visible in the scroll container, so the
+  // full (up to 2000-row) history scrolls smoothly without paging.
+  const v = useVirtualRows(filtered.length);
+  const windowRows = filtered.slice(v.start, v.end);
 
-  // On-demand label lookup: fetch tags for the current page's counterparties that
+  // On-demand label lookup: fetch tags for the visible rows' counterparties that
   // have no label yet (not enriched, not a labelled graph node, not already tried).
   // Bounded concurrency; each address is attempted at most once per network.
   useEffect(() => {
     if (!addr) return;
     const need: string[] = [];
-    for (const { t } of pageRows) {
+    for (const { t } of windowRows) {
       const out: boolean = t.from?.toLowerCase() === addr;
       const cp: string | undefined = (out ? t.to : t.from)?.toLowerCase();
       if (!cp || cp === addr) continue;
@@ -704,7 +734,7 @@ function TxTab({
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, page, activeNet, addr]);
+  }, [filtered, v.start, v.end, activeNet, addr]);
 
   function sortBy(k: "date" | "usd") {
     if (sortKey === k) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -771,7 +801,7 @@ function TxTab({
             <span>{filtered.length} из {source.length}{hasRange ? " за период" : ""}{sel.size ? ` · выбрано ${sel.size}` : ""}</span>
           </div>
 
-          <div className="transfer-picker-wrap wide" style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
+          <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll} style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
             <table className="transfer-table">
               <thead>
                 <tr>
@@ -783,7 +813,8 @@ function TxTab({
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map(({ t, i }) => {
+                {v.padTop > 0 && <tr style={{ height: v.padTop }} aria-hidden />}
+                {windowRows.map(({ t, i }) => {
                   const out = addr ? t.from?.toLowerCase() === addr : false;
                   const cpAddr = out ? t.to : t.from;
                   const cpLc = cpAddr?.toLowerCase();
@@ -810,17 +841,10 @@ function TxTab({
                     </tr>
                   );
                 })}
+                {v.padBottom > 0 && <tr style={{ height: v.padBottom }} aria-hidden />}
               </tbody>
             </table>
           </div>
-
-          {pages > 1 && (
-            <div className="tx-pager">
-              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>←</button>
-              <span>{page + 1} / {pages}</span>
-              <button onClick={() => setPage((p) => Math.min(pages - 1, p + 1))} disabled={page >= pages - 1}>→</button>
-            </div>
-          )}
 
           <button className="primary" disabled={!sel.size}
             onClick={() => { onAddSelected(selTransfers()); setSel(new Set()); }}>
