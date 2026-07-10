@@ -240,7 +240,8 @@ export default function SidePanel(props: Props) {
           <>
             <Metric label="Сумма" value={node.amount != null ? fmtAmt(node.amount) : NA} />
             <Metric label="Актив" value={node.coin ?? NA} />
-            <Metric label="Дата" loading={dateBusy} value={node.timestamp ? fmtDate(node.timestamp) : NA} />
+            <Metric label="Дата" loading={dateBusy} value={node.timestamp ? fmtDate(node.timestamp) : NA}
+              sub={node.source ?? undefined} title={node.fetchedAt ? `загружено: ${fmtDate(node.fetchedAt)}` : undefined} />
             <Metric label="Сеть" value={node.chainName ?? (node.net && node.net !== "UNKNOWN" ? node.net : NA)} />
           </>
         ) : (
@@ -611,7 +612,7 @@ function AggTxTab({ node }: { node: GNode }) {
           <tbody>
             {v.padTop > 0 && <tr style={{ height: v.padTop }} aria-hidden />}
             {window.map((m, i) => (
-              <tr key={v.start + i}>
+              <tr key={v.start + i} title={`источник: ${m.source ?? "—"}\nзагружено: ${m.fetchedAt ? fmtDate(m.fetchedAt) : "—"}`}>
                 <td className="tdate">{fmtDate(m.timestamp)}</td>
                 <td className="num tamt">{fmtAmt(m.amount)} {m.coin ?? ""}</td>
                 <td>

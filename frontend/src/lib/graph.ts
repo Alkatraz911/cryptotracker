@@ -60,6 +60,8 @@ export interface GNode {
   tag?: string; // manual marker category id (see lib/tags.ts)
   note?: string; // legacy per-node note — superseded by case notes (annotations); kept for old saved graphs
   timestamp?: number; // tx time (ms) — used to seed Orbiter cross-chain resolve
+  source?: string | null;    // provenance: data source this tx came from
+  fetchedAt?: number | null; // provenance: when it was pulled into the store (ms)
   chainName?: string; // display name for chains outside our Network union (e.g. "Optimism")
   chainId?: string; // numeric EVM chain id — set on Orbiter-created cross-chain nodes
   // Entity (manual merge): the absorbed member nodes + their original incident
@@ -83,6 +85,8 @@ export interface AggMember {
   coin?: string;
   timestamp?: number;
   explorerUrl?: string | null;
+  source?: string | null;
+  fetchedAt?: number | null;
   x?: number;
   y?: number;
 }

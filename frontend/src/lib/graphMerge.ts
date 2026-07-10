@@ -115,7 +115,8 @@ export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
       tsTo: tss.length ? Math.max(...tss) : undefined,
       members: members.map((m) => ({
         hash: m.hash!, net: m.net, amount: m.amount, coin: m.coin,
-        timestamp: m.timestamp, explorerUrl: m.explorerUrl, x: m.x, y: m.y,
+        timestamp: m.timestamp, explorerUrl: m.explorerUrl,
+        source: m.source, fetchedAt: m.fetchedAt, x: m.x, y: m.y,
       })),
       x: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : undefined,
       y: ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : undefined,
@@ -149,7 +150,8 @@ export function expandTransactions(graph: BuiltGraph): BuiltGraph {
         label: mem.amount != null ? `${fmtAmt(mem.amount)} ${mem.coin ?? ""}` : "tx",
         net: mem.net, hash: mem.hash, amount: mem.amount, coin: mem.coin,
         color: kindColor("Tx"), degree: 1,
-        explorerUrl: mem.explorerUrl, timestamp: mem.timestamp, x: mem.x, y: mem.y,
+        explorerUrl: mem.explorerUrl, timestamp: mem.timestamp,
+        source: mem.source, fetchedAt: mem.fetchedAt, x: mem.x, y: mem.y,
       });
       newEdges.push({ id: `${srcId}->${txId}`, source: srcId, target: txId, type: "SENT" });
       newEdges.push({ id: `${txId}->${dstId}`, source: txId, target: dstId, type: "TO" });
@@ -342,7 +344,7 @@ export function walletNode(net: Network, address: string): GNode {
 
 // Convert a list of explorer transfers into a mergeable subgraph.
 export function transfersSubgraph(
-  transfers: { network: string; hash: string; from: string | null; to: string | null; amount?: number; asset?: string; timestamp?: number }[]
+  transfers: { network: string; hash: string; from: string | null; to: string | null; amount?: number; asset?: string; timestamp?: number; source?: string | null; fetchedAt?: number | null }[]
 ): { nodes: GNode[]; edges: GEdge[] } {
   const nodes: GNode[] = [];
   const edges: GEdge[] = [];
@@ -350,6 +352,7 @@ export function transfersSubgraph(
     const sub = txSubgraph({
       net: t.network as Network, hash: t.hash,
       from: t.from, to: t.to, amount: t.amount, asset: t.asset, timestamp: t.timestamp,
+      source: t.source, fetchedAt: t.fetchedAt,
     });
     nodes.push(...sub.nodes);
     edges.push(...sub.edges);
@@ -449,15 +452,17 @@ export function txSubgraph(opts: {
   amount?: number;
   asset?: string;
   timestamp?: number;
+  source?: string | null;
+  fetchedAt?: number | null;
 }): { nodes: GNode[]; edges: GEdge[] } {
-  const { net, hash, from, to, amount, asset, timestamp } = opts;
+  const { net, hash, from, to, amount, asset, timestamp, source, fetchedAt } = opts;
   const nodes: GNode[] = [];
   const edges: GEdge[] = [];
   const txId = `T:${hash}`;
   nodes.push({
     id: txId, kind: "Tx", label: amount != null ? `${amount} ${asset ?? ""}` : "tx",
     net, hash, amount, coin: asset, color: kindColor("Tx"), degree: 1,
-    explorerUrl: txUrl(net, hash), timestamp,
+    explorerUrl: txUrl(net, hash), timestamp, source, fetchedAt,
   });
   if (from) {
     const w = walletNode(net, from);
