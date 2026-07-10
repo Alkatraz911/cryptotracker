@@ -116,6 +116,21 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
   // fires no window resize event).
   const resizeObs = useRef<ResizeObserver | null>(null);
 
+  // Release the resources bound to the Cytoscape container on unmount (leaving
+  // the graph view / admin / logout): cancel any in-flight smooth-zoom frame so
+  // it can't fire against a destroyed instance, drop the DOM wheel listener, and
+  // disconnect the ResizeObserver. Nothing here touches `cy`, so it's safe
+  // regardless of teardown order. (Normal add/remove re-mounts are handled by the
+  // per-container rebind logic, not here.)
+  useEffect(() => {
+    return () => {
+      if (wheelState.current.raf) { cancelAnimationFrame(wheelState.current.raf); wheelState.current.raf = 0; }
+      if (wheelBound.current) { wheelBound.current.el.removeEventListener("wheel", wheelBound.current.handler); wheelBound.current = null; }
+      resizeObs.current?.disconnect();
+      resizeObs.current = null;
+    };
+  }, []);
+
   // Multi-select mode (merge / delete) marks nodes with a `sel` data flag rather
   // than Cytoscape's built-in :selected — so any number of nodes can be picked
   // regardless of the core's single/additive selection behaviour. Disable the
