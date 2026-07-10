@@ -70,9 +70,11 @@ export function hasAggregated(graph: BuiltGraph): boolean {
   return graph.nodes.some((n) => n.aggregated);
 }
 
-// Fold every group of Tx nodes that share the same (sender → recipient) wallet
-// pair into a single aggregated Tx node: one circle carrying the total + period,
-// with two edges (sender → agg → recipient). Groups of one are left untouched.
+// Fold Tx nodes that share the same (sender → recipient, ASSET) into a single
+// aggregated Tx node: one circle per asset carrying an exact total + period, with
+// two edges (sender → agg → recipient). Grouping per-asset keeps every total in a
+// single unit (no cross-asset/USD mixing); a lone transfer of an asset is left
+// as-is, so mixed pairs show one circle per repeated asset plus the singletons.
 export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
   const srcOf = new Map<string, string>(); // txId → sender wallet (SENT: wallet → tx)
   const dstOf = new Map<string, string>(); // txId → recipient wallet (TO: tx → wallet)
@@ -81,34 +83,35 @@ export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
     else if (e.type === "TO") dstOf.set(e.source, e.target);
   }
 
-  const groups = new Map<string, GNode[]>();
+  const groups = new Map<string, { srcId: string; dstId: string; coin: string; members: GNode[] }>();
   for (const n of graph.nodes) {
     if (n.kind !== "Tx" || n.aggregated) continue;
     const s = srcOf.get(n.id), d = dstOf.get(n.id);
     if (!s || !d) continue; // only plain wallet→tx→wallet transfers are foldable
-    const key = `${s}=>${d}`;
-    (groups.get(key) ?? groups.set(key, []).get(key)!).push(n);
+    const coin = n.coin ?? "";
+    const key = `${s}|${d}|${coin}`;
+    (groups.get(key) ?? groups.set(key, { srcId: s, dstId: d, coin, members: [] }).get(key)!).members.push(n);
   }
 
   const remove = new Set<string>();
   const newNodes: GNode[] = [];
   const newEdges: GEdge[] = [];
-  for (const [key, members] of groups) {
+  let seq = 0;
+  for (const { srcId, dstId, coin, members } of groups.values()) {
     if (members.length < 2) continue;
-    const [srcId, dstId] = key.split("=>");
     for (const m of members) remove.add(m.id);
 
-    const coins = new Set(members.map((m) => m.coin ?? ""));
-    const coin = coins.size === 1 ? [...coins][0] : "";
-    const total = coin ? members.reduce((s, m) => s + (m.amount ?? 0), 0) : undefined;
+    const total = members.reduce((s, m) => s + (m.amount ?? 0), 0);
     const tss = members.map((m) => m.timestamp).filter((x): x is number => x != null);
     const xs = members.map((m) => m.x).filter((x): x is number => x != null);
     const ys = members.map((m) => m.y).filter((y): y is number => y != null);
-    const aggId = `${AGG_PREFIX}${srcId}=>${dstId}`;
+    // Unique, stable per (src,dst,asset). expandTransactions derives src/dst from
+    // this node's edges, so the id format itself is not parsed.
+    const aggId = `${AGG_PREFIX}${srcId}=>${dstId}=>${coin || `#${seq++}`}`;
 
     newNodes.push({
       id: aggId, kind: "Tx", aggregated: true,
-      label: `${total != null ? `${fmtAmt(total)} ${coin}` : `${members.length} перев.`}\n▣ ${members.length}`,
+      label: `${fmtAmt(total)}${coin ? ` ${coin}` : ""}\n▣ ${members.length}`,
       net: members[0].net, color: kindColor("Tx"), degree: 2,
       amount: total, coin: coin || undefined,
       tsFrom: tss.length ? Math.min(...tss) : undefined,
@@ -132,17 +135,23 @@ export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
 }
 
 // Reverse collapseTransactions: unfold aggregated Tx nodes back into their member
-// transactions (restoring their saved positions).
+// transactions (restoring their saved positions). The sender/recipient wallets
+// are read from the aggregate node's own SENT/TO edges (robust, format-agnostic).
 export function expandTransactions(graph: BuiltGraph): BuiltGraph {
+  const srcOf = new Map<string, string>();
+  const dstOf = new Map<string, string>();
+  for (const e of graph.edges) {
+    if (e.type === "SENT") srcOf.set(e.target, e.source);
+    else if (e.type === "TO") dstOf.set(e.source, e.target);
+  }
   const remove = new Set<string>();
   const newNodes: GNode[] = [];
   const newEdges: GEdge[] = [];
   for (const n of graph.nodes) {
     if (!n.aggregated || !n.members) continue;
-    const m = n.id.match(/^AGG:(.+)=>(.+)$/);
-    if (!m) continue;
+    const srcId = srcOf.get(n.id), dstId = dstOf.get(n.id);
+    if (!srcId || !dstId) continue;
     remove.add(n.id);
-    const [, srcId, dstId] = m;
     for (const mem of n.members) {
       const txId = `T:${mem.hash}`;
       newNodes.push({
