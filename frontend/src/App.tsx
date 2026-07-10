@@ -14,7 +14,7 @@ import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
-import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, hasAggregated, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
+import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
 import { walletLabel, type BuiltGraph, type GAnnotation, type GEdge, type GNode } from "./lib/graph";
 import { addressUrl, networkColor, type Network } from "./lib/explorers";
 import { applyTheme, getStoredTheme, type Theme } from "./lib/theme";
@@ -57,6 +57,8 @@ export default function App() {
   const [txCache, setTxCache] = useState<TxCacheMap>({});
   const [prompt, setPrompt] = useState<PromptCfg | null>(null);
   const [confirm, setConfirm] = useState<ConfirmCfg | null>(null);
+  // Transactions are shown aggregated by default; the ⇉ toolbar button toggles.
+  const [collapsed, setCollapsed] = useState(true);
   const [unsaved, setUnsaved] = useState<{ proceed: () => void } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -193,7 +195,7 @@ export default function App() {
 
   function applyDraft(d: Draft | null) {
     if (!d) return;
-    setGraph(d.graph);
+    setGraph(collapsed ? collapseTransactions(d.graph) : d.graph);
     setCurrentId(d.currentId);
     setName(d.name);
     setDirty(!d.currentId);
@@ -254,7 +256,9 @@ export default function App() {
     setGraph(next);
     setDirty(true);
   }
-  function applyGraph(g: BuiltGraph) { commit(g); }
+  // Adding a subgraph: fold repeated transfers automatically while in the default
+  // aggregated view, so new transactions come in already collapsed.
+  function applyGraph(g: BuiltGraph) { commit(collapsed ? collapseTransactions(g) : g); }
 
   function undo() {
     if (!past.length) return;
@@ -283,7 +287,7 @@ export default function App() {
     fetchingIds.current = new Set();
     const p = await store.getProject(id);
     setCurrentId(p.id); setName(p.name);
-    setGraph(normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [], p.graph.annotations ?? [])));
+    { const loaded = normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [], p.graph.annotations ?? [])); setGraph(collapsed ? collapseTransactions(loaded) : loaded); }
     setTxCache({}); // session cache; transfers come from the shared store on demand
     resetHistory(); setSelectedId(null); setFocusId(null); setDirty(false);
   }
@@ -400,12 +404,28 @@ export default function App() {
   function removeAnnotation(id: string) { commit(deleteAnnotation(graph, id)); }
 
   // Fold/unfold multiple transfers between the same two addresses into one Tx
-  // circle (undoable). Closes the panel if a now-folded Tx node was selected.
+  // circle (undoable). Also flips the default view mode so later additions follow
+  // suit. Closes the panel if the selected Tx node was folded/unfolded away.
   function toggleCollapseTx() {
-    const next = hasAggregated(graph) ? expandTransactions(graph) : collapseTransactions(graph);
-    if (next === graph) { flash("Нет повторяющихся переводов между одними и теми же адресами"); return; }
-    commit(next);
-    if (selectedId && !next.nodes.some((n) => n.id === selectedId)) setSelectedId(null);
+    const expand = collapsed;
+    const next = expand ? expandTransactions(graph) : collapseTransactions(graph);
+    setCollapsed(!expand);
+    if (next !== graph) {
+      commit(next);
+      if (selectedId && !next.nodes.some((n) => n.id === selectedId)) setSelectedId(null);
+    } else if (!expand) {
+      flash("Нет повторяющихся переводов между одними и теми же адресами");
+    }
+  }
+
+  // Force (physics) re-layout wipes the current node positions, so confirm first.
+  function requestForceLayout() {
+    setConfirm({
+      title: "Силовая раскладка",
+      message: "Пересобрать граф силовым алгоритмом? Текущие позиции узлов будут перезаписаны.",
+      confirmText: "Пересобрать",
+      onConfirm: () => setLayoutKey((k) => k + 1),
+    });
   }
 
   // Run a navigation (new/open) but offer to save first if there are unsaved changes.
@@ -624,13 +644,13 @@ export default function App() {
           onUndo={undo}
           onRedo={redo}
           hasGraph={has}
-          onForceLayout={() => setLayoutKey((k) => k + 1)}
+          onForceLayout={requestForceLayout}
           onStructure={() => setStructureKey((k) => k + 1)}
           mergeMode={selectMode === "merge"}
           onToggleMerge={() => toggleSelectMode("merge")}
           deleteMode={selectMode === "delete"}
           onToggleDelete={() => toggleSelectMode("delete")}
-          collapsed={hasAggregated(graph)}
+          collapsed={collapsed}
           onToggleCollapse={toggleCollapseTx}
           theme={theme}
           onToggleTheme={toggleTheme}
