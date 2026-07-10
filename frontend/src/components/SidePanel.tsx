@@ -551,9 +551,16 @@ const ROW_H = 30;
 // Minimal windowed rendering: only the rows visible in the scroll container are
 // mounted, with spacer rows padding the scroll height. Handles up to the full
 // 2000-row history without paging or thousands of DOM nodes.
-function useVirtualRows(total: number, rowH: number = ROW_H, overscan = 8) {
+function useVirtualRows(total: number, fallbackH: number = ROW_H, overscan = 8) {
   const ref = useRef<HTMLDivElement>(null);
+  // Real rendered row height (decoupled from the CSS value): measured from a live
+  // row, so changing the row height/font in CSS doesn't desync the scroll math.
+  const [rowH, setRowH] = useState(fallbackH);
   const [range, setRange] = useState({ start: 0, end: Math.min(total, 40) });
+  const measure = useCallback(() => {
+    const sample = ref.current?.querySelector("tbody tr:not([aria-hidden])") as HTMLElement | null;
+    if (sample && sample.offsetHeight > 0) setRowH((prev) => (Math.abs(sample.offsetHeight - prev) > 0.5 ? sample.offsetHeight : prev));
+  }, []);
   const recompute = useCallback(() => {
     const el = ref.current;
     if (!el) return;
@@ -561,20 +568,21 @@ function useVirtualRows(total: number, rowH: number = ROW_H, overscan = 8) {
     const visible = Math.ceil(el.clientHeight / rowH) + overscan * 2;
     setRange({ start, end: Math.min(total, start + visible) });
   }, [total, rowH, overscan]);
-  // Recompute on mount AND whenever the container resizes (viewport/panel/header
-  // height changes don't fire scroll) so the visible window always fills the box.
+  // Measure + recompute on mount AND whenever the container resizes (viewport /
+  // panel / header height changes don't fire scroll). Scrolling only recomputes,
+  // to avoid a layout read per wheel tick.
   useEffect(() => {
-    recompute();
+    measure(); recompute();
     const el = ref.current;
-    const onWinResize = () => recompute();
-    window.addEventListener("resize", onWinResize);
+    const onResize = () => { measure(); recompute(); };
+    window.addEventListener("resize", onResize);
     let ro: ResizeObserver | undefined;
     if (el && typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => recompute());
+      ro = new ResizeObserver(onResize);
       ro.observe(el);
     }
-    return () => { window.removeEventListener("resize", onWinResize); ro?.disconnect(); };
-  }, [recompute]);
+    return () => { window.removeEventListener("resize", onResize); ro?.disconnect(); };
+  }, [measure, recompute]);
   return {
     ref, start: range.start, end: range.end, onScroll: recompute,
     padTop: range.start * rowH, padBottom: Math.max(0, (total - range.end) * rowH),
