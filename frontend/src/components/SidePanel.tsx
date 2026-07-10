@@ -561,7 +561,20 @@ function useVirtualRows(total: number, rowH: number = ROW_H, overscan = 8) {
     const visible = Math.ceil(el.clientHeight / rowH) + overscan * 2;
     setRange({ start, end: Math.min(total, start + visible) });
   }, [total, rowH, overscan]);
-  useEffect(() => { recompute(); }, [recompute]);
+  // Recompute on mount AND whenever the container resizes (viewport/panel/header
+  // height changes don't fire scroll) so the visible window always fills the box.
+  useEffect(() => {
+    recompute();
+    const el = ref.current;
+    const onWinResize = () => recompute();
+    window.addEventListener("resize", onWinResize);
+    let ro: ResizeObserver | undefined;
+    if (el && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => recompute());
+      ro.observe(el);
+    }
+    return () => { window.removeEventListener("resize", onWinResize); ro?.disconnect(); };
+  }, [recompute]);
   return {
     ref, start: range.start, end: range.end, onScroll: recompute,
     padTop: range.start * rowH, padBottom: Math.max(0, (total - range.end) * rowH),
