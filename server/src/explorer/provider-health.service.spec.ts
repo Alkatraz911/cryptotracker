@@ -4,6 +4,7 @@ describe('ProviderHealthService', () => {
   let health: ProviderHealthService;
 
   beforeEach(() => {
+    process.env.PROVIDER_HEALTH_FILE = 'off'; // no file persistence in tests
     health = new ProviderHealthService();
     jest.spyOn(health['logger'], 'log').mockImplementation(() => undefined);
     jest.spyOn(health['logger'], 'warn').mockImplementation(() => undefined);
@@ -66,5 +67,22 @@ describe('ProviderHealthService', () => {
     health.record('zzz', 'ok');
     health.record('aaa', 'ok');
     expect(health.snapshot().map((s) => s.source)).toEqual(['aaa', 'zzz']);
+  });
+
+  it('persists to a file and reloads it on construction', () => {
+    const fs = require('fs') as typeof import('fs');
+    const tmp = require('path').join(require('os').tmpdir(), `ph-${Date.now()}.json`);
+    process.env.PROVIDER_HEALTH_FILE = tmp;
+    try {
+      const a = new ProviderHealthService();
+      jest.spyOn(a['logger'], 'error').mockImplementation(() => undefined);
+      a.record('bscscan.com', 'drift', { note: 'x' });
+      (a as unknown as { save(): void }).save(); // force write past the debounce
+      const b = new ProviderHealthService(); // loads the file in its constructor
+      expect(b.snapshot().find((s) => s.source === 'bscscan.com')?.status).toBe('drift');
+    } finally {
+      fs.rmSync(tmp, { force: true });
+      process.env.PROVIDER_HEALTH_FILE = 'off';
+    }
   });
 });
