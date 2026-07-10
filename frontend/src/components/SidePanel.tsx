@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import AiChat from "./AiChat";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+// AI chat is opened on demand — load it lazily so it isn't in the initial bundle.
+const AiChat = lazy(() => import("./AiChat"));
 import { store, type AiMsg, type NodeNetCache, type SourceStatus, type Transfer, type WalletBalance } from "../lib/store";
 import { transfersSubgraph, bridgeSubgraph, annotationsForNode } from "../lib/graphMerge";
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
@@ -271,7 +272,9 @@ export default function SidePanel(props: Props) {
           <LinksTab txs={txs} addr={addr} onAdd={onAdd} onFocus={onFocus} labelByAddr={labelByAddr} />
         )}
         {tab === "ai" && (
-          <AiChat key={node.id} graph={graph} focusId={node.id} messages={chat} onMessagesChange={onChatChange} />
+          <Suspense fallback={<div className="ai-thinking">Загрузка ИИ-чата…</div>}>
+            <AiChat key={node.id} graph={graph} focusId={node.id} messages={chat} onMessagesChange={onChatChange} />
+          </Suspense>
         )}
       </div>
 

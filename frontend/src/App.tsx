@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Auth from "./components/Auth";
-import DataLoader from "./components/DataLoader";
-import GraphView from "./components/GraphView";
 import ManualAdd from "./components/ManualAdd";
-import OrbiterImport from "./components/OrbiterImport";
 import SidePanel from "./components/SidePanel";
-import AdminPage from "./components/AdminPage";
 import PromptModal from "./components/PromptModal";
+// Code-split the heavy / on-demand pieces so the initial bundle stays small:
+// GraphView pulls in Cytoscape, DataLoader pulls in xlsx, and Admin/Orbiter are
+// rarely opened. They load on first use behind a Suspense fallback.
+const GraphView = lazy(() => import("./components/GraphView"));
+const DataLoader = lazy(() => import("./components/DataLoader"));
+const OrbiterImport = lazy(() => import("./components/OrbiterImport"));
+const AdminPage = lazy(() => import("./components/AdminPage"));
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import Toolbar from "./components/Toolbar";
@@ -516,7 +519,7 @@ export default function App() {
 
   if (!ready) return <div className="boot">Загрузка…</div>;
   if (!user) return <Auth onAuthed={afterAuth} />;
-  if (adminOpen && user.role === "admin") return <AdminPage user={user} onClose={() => setAdminOpen(false)} />;
+  if (adminOpen && user.role === "admin") return <Suspense fallback={<div className="empty">Загрузка…</div>}><AdminPage user={user} onClose={() => setAdminOpen(false)} /></Suspense>;
 
   const has = graph.nodes.length > 0;
 
@@ -643,19 +646,21 @@ export default function App() {
           {!has ? (
             <div className="empty">Откройте панель ☰ слева, чтобы импортировать CSV/XLSX или добавить кошелёк по ссылке</div>
           ) : (
-            <GraphView
-              graph={graph}
-              onSelect={(n) => setSelectedId(n?.id ?? null)}
-              selectedId={selectedId}
-              focusId={focusId}
-              onPositionsSave={savePositions}
-              layoutKey={layoutKey}
-              structureKey={structureKey}
-              mergeMode={selectMode !== null}
-              onMergeSelection={setSelection}
-              theme={theme}
-              pngRef={pngRef}
-            />
+            <Suspense fallback={<div className="empty">Загрузка графа…</div>}>
+              <GraphView
+                graph={graph}
+                onSelect={(n) => setSelectedId(n?.id ?? null)}
+                selectedId={selectedId}
+                focusId={focusId}
+                onPositionsSave={savePositions}
+                layoutKey={layoutKey}
+                structureKey={structureKey}
+                mergeMode={selectMode !== null}
+                onMergeSelection={setSelection}
+                theme={theme}
+                pngRef={pngRef}
+              />
+            </Suspense>
           )}
         </div>
       </main>
@@ -684,15 +689,19 @@ export default function App() {
 
       {importOpen && (
         <Modal title="Импорт CSV / XLSX" onClose={() => setImportOpen(false)} width={560}>
-          <DataLoader onBuild={(g) => { applyGraph(mergeGraphs(graph, g)); setImportOpen(false); store.logUsage("Импорт CSV"); }} />
+          <Suspense fallback={<div className="empty">Загрузка…</div>}>
+            <DataLoader onBuild={(g) => { applyGraph(mergeGraphs(graph, g)); setImportOpen(false); store.logUsage("Импорт CSV"); }} />
+          </Suspense>
         </Modal>
       )}
       {orbiterOpen && (
         <Modal title="Кроссчейн-переводы (мосты)" onClose={() => setOrbiterOpen(false)} width={460}>
-          <OrbiterImport
-            onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
-            onClose={() => setOrbiterOpen(false)}
-          />
+          <Suspense fallback={<div className="empty">Загрузка…</div>}>
+            <OrbiterImport
+              onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
+              onClose={() => setOrbiterOpen(false)}
+            />
+          </Suspense>
         </Modal>
       )}
       {unsaved && (
