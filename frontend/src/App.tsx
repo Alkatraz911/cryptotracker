@@ -29,6 +29,11 @@ type ConfirmCfg = {
   onConfirm: () => void;
 };
 
+// Graph copy for persistence (autosave / draft): drop the derived `linked` pairs
+// — they can be sizable and are recomputed by finalize() on load, so there's no
+// need to store or transmit them.
+const slimGraph = (g: BuiltGraph): BuiltGraph => ({ ...g, linked: [] });
+
 // Cached explorer data: nodeId → network → { transfers, diag, balance }.
 type TxCacheMap = Record<string, Record<string, NodeNetCache>>;
 
@@ -215,7 +220,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ currentId, name, graph }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ currentId, name, graph: slimGraph(graph) }));
     } catch { /* quota exceeded on very large graphs — skip */ }
   }, [user, currentId, name, graph]);
 
@@ -223,7 +228,7 @@ export default function App() {
   useEffect(() => {
     if (!currentId || !dirty) return;
     const t = setTimeout(() => {
-      store.updateProject(currentId, { name, graph })
+      store.updateProject(currentId, { name, graph: slimGraph(graph) })
         .then(() => { setDirty(false); return loadProjects(); })
         .catch(() => {});
     }, 2000);
@@ -302,7 +307,7 @@ export default function App() {
 
   function saveProject() {
     if (currentId) {
-      store.updateProject(currentId, { name, graph })
+      store.updateProject(currentId, { name, graph: slimGraph(graph) })
         .then(() => { setDirty(false); return loadProjects(); })
         .then(() => flash("Сохранено")).catch((e) => flash(e.message));
       return;
@@ -311,7 +316,7 @@ export default function App() {
       title: "Сохранить расследование", label: "Название",
       defaultValue: name || "Новое дело", confirmText: "Сохранить",
       onSubmit: (nm) => {
-        store.createProject(nm, graph)
+        store.createProject(nm, slimGraph(graph))
           .then((meta) => { setCurrentId(meta.id); setName(meta.name); setDirty(false); return loadProjects(); })
           .then(() => flash("Сохранено")).catch((e) => flash(e.message));
       },
@@ -445,7 +450,7 @@ export default function App() {
   function saveThen(proceed: () => void) {
     setUnsaved(null);
     if (currentId) {
-      store.updateProject(currentId, { name, graph })
+      store.updateProject(currentId, { name, graph: slimGraph(graph) })
         .then(() => { setDirty(false); return loadProjects(); })
         .then(() => proceed())
         .catch((e) => flash(e.message));
@@ -454,7 +459,7 @@ export default function App() {
         title: "Сохранить расследование", label: "Название",
         defaultValue: name || "Новое дело", confirmText: "Сохранить",
         onSubmit: (nm) => {
-          store.createProject(nm, graph)
+          store.createProject(nm, slimGraph(graph))
             .then(() => loadProjects())
             .then(() => proceed())
             .catch((e) => flash(e.message));
