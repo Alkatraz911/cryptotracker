@@ -2,7 +2,7 @@
 // then recompute counts + linked accounts.
 import {
   addWalletNet, countKinds, deriveLinked, kindColor, walletLabel,
-  type BuiltGraph, type GAnnotation, type GEdge, type GNode,
+  type BuiltGraph, type EdgeType, type GAnnotation, type GEdge, type GNode,
 } from "./graph";
 import {
   addressUrl, networkColor, txUrl, walletNodeId, type Network,
@@ -76,28 +76,31 @@ export function hasAggregated(graph: BuiltGraph): boolean {
 // single unit (no cross-asset/USD mixing); a lone transfer of an asset is left
 // as-is, so mixed pairs show one circle per repeated asset plus the singletons.
 export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
-  const srcOf = new Map<string, string>(); // txId → sender wallet (SENT: wallet → tx)
-  const dstOf = new Map<string, string>(); // txId → recipient wallet (TO: tx → wallet)
+  // The edge INTO a Tx is SENT (wallet→tx) or WITHDREW (exchange-account/User→tx,
+  // from CSV imports); the edge OUT is TO (tx→wallet). Fold both sender kinds, and
+  // remember the incoming edge type so expand restores the right one.
+  const inOf = new Map<string, { src: string; type: EdgeType }>();
+  const dstOf = new Map<string, string>();
   for (const e of graph.edges) {
-    if (e.type === "SENT") srcOf.set(e.target, e.source);
+    if (e.type === "SENT" || e.type === "WITHDREW") inOf.set(e.target, { src: e.source, type: e.type });
     else if (e.type === "TO") dstOf.set(e.source, e.target);
   }
 
-  const groups = new Map<string, { srcId: string; dstId: string; coin: string; members: GNode[] }>();
+  const groups = new Map<string, { srcId: string; dstId: string; coin: string; inType: EdgeType; members: GNode[] }>();
   for (const n of graph.nodes) {
     if (n.kind !== "Tx" || n.aggregated) continue;
-    const s = srcOf.get(n.id), d = dstOf.get(n.id);
-    if (!s || !d) continue; // only plain wallet→tx→wallet transfers are foldable
+    const inn = inOf.get(n.id), d = dstOf.get(n.id);
+    if (!inn || !d) continue; // only sender→tx→recipient transfers are foldable
     const coin = n.coin ?? "";
-    const key = `${s}|${d}|${coin}`;
-    (groups.get(key) ?? groups.set(key, { srcId: s, dstId: d, coin, members: [] }).get(key)!).members.push(n);
+    const key = `${inn.src}|${d}|${coin}`;
+    (groups.get(key) ?? groups.set(key, { srcId: inn.src, dstId: d, coin, inType: inn.type, members: [] }).get(key)!).members.push(n);
   }
 
   const remove = new Set<string>();
   const newNodes: GNode[] = [];
   const newEdges: GEdge[] = [];
   let seq = 0;
-  for (const { srcId, dstId, coin, members } of groups.values()) {
+  for (const { srcId, dstId, coin, inType, members } of groups.values()) {
     if (members.length < 2) continue;
     for (const m of members) remove.add(m.id);
 
@@ -124,7 +127,7 @@ export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
       x: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : undefined,
       y: ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : undefined,
     });
-    newEdges.push({ id: `${srcId}->${aggId}`, source: srcId, target: aggId, type: "SENT" });
+    newEdges.push({ id: `${srcId}->${aggId}`, source: srcId, target: aggId, type: inType });
     newEdges.push({ id: `${aggId}->${dstId}`, source: aggId, target: dstId, type: "TO" });
   }
 
@@ -138,10 +141,10 @@ export function collapseTransactions(graph: BuiltGraph): BuiltGraph {
 // transactions (restoring their saved positions). The sender/recipient wallets
 // are read from the aggregate node's own SENT/TO edges (robust, format-agnostic).
 export function expandTransactions(graph: BuiltGraph): BuiltGraph {
-  const srcOf = new Map<string, string>();
+  const inOf = new Map<string, { src: string; type: EdgeType }>();
   const dstOf = new Map<string, string>();
   for (const e of graph.edges) {
-    if (e.type === "SENT") srcOf.set(e.target, e.source);
+    if (e.type === "SENT" || e.type === "WITHDREW") inOf.set(e.target, { src: e.source, type: e.type });
     else if (e.type === "TO") dstOf.set(e.source, e.target);
   }
   const remove = new Set<string>();
@@ -149,8 +152,9 @@ export function expandTransactions(graph: BuiltGraph): BuiltGraph {
   const newEdges: GEdge[] = [];
   for (const n of graph.nodes) {
     if (!n.aggregated || !n.members) continue;
-    const srcId = srcOf.get(n.id), dstId = dstOf.get(n.id);
-    if (!srcId || !dstId) continue;
+    const inn = inOf.get(n.id), dstId = dstOf.get(n.id);
+    if (!inn || !dstId) continue;
+    const srcId = inn.src;
     remove.add(n.id);
     for (const mem of n.members) {
       const txId = `T:${mem.hash}`;
@@ -162,7 +166,7 @@ export function expandTransactions(graph: BuiltGraph): BuiltGraph {
         explorerUrl: mem.explorerUrl, timestamp: mem.timestamp,
         source: mem.source, fetchedAt: mem.fetchedAt, x: mem.x, y: mem.y,
       });
-      newEdges.push({ id: `${srcId}->${txId}`, source: srcId, target: txId, type: "SENT" });
+      newEdges.push({ id: `${srcId}->${txId}`, source: srcId, target: txId, type: inn.type });
       newEdges.push({ id: `${txId}->${dstId}`, source: txId, target: dstId, type: "TO" });
     }
   }
