@@ -6,6 +6,7 @@ import { Wallet } from './chaindata/entities/wallet.entity';
 import { Transaction } from './chaindata/entities/transaction.entity';
 import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
+import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
 
 // Standalone DataSource for the TypeORM CLI (migration generate/run/revert).
 // The running app configures TypeORM via TypeOrmModule in app.module.ts and runs
@@ -16,7 +17,7 @@ try { (require('dotenv') as { config: () => void }).config(); } catch { /* env a
 export default new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent],
+  entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
   ssl: (process.env.DATABASE_URL ?? '').includes('sslmode=require')

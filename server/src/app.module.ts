@@ -14,6 +14,7 @@ import { Wallet } from './chaindata/entities/wallet.entity';
 import { Transaction } from './chaindata/entities/transaction.entity';
 import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
+import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { UsageEvent } from './analytics/entities/usage-event.entity';
       useFactory: (cfg: ConfigService) => ({
         type: 'postgres',
         url: cfg.get<string>('DATABASE_URL'),
-        entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent],
+        entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity],
         synchronize: false,
         migrations: [__dirname + '/migrations/*.{js,ts}'],
         // Vercel sets VERCEL=1 in both its build and runtime environments. Under

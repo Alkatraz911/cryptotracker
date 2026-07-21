@@ -41,8 +41,8 @@ export class AiController {
 
   // RAG knowledge base CRUD (labelled addresses, custom patterns).
   @Get('knowledge')
-  listKnowledge() {
-    return { entries: this.knowledge.list() };
+  async listKnowledge() {
+    return { entries: await this.knowledge.list() };
   }
 
   @Post('knowledge')

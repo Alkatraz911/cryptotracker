@@ -46,12 +46,12 @@ export class AiService {
     private readonly knowledge: KnowledgeService,
   ) {}
 
-  health() {
+  async health() {
     return {
       provider: this.llm.provider(),
       model: this.llm.model(),
       configured: this.llm.configured(),
-      knowledge: this.knowledge.list().length,
+      knowledge: (await this.knowledge.list()).length,
     };
   }
 
@@ -62,7 +62,7 @@ export class AiService {
 
     const signals = this.computeSignals(nodes, edges, focus);
     const addresses = nodes.map((n) => n.address).filter((a): a is string => !!a);
-    const knowledge = this.knowledge.retrieve(addresses);
+    const knowledge = await this.knowledge.retrieve(addresses);
 
     const facts = this.buildFacts(nodes, edges, focus, signals);
     const knowledgeBlock = this.buildKnowledgeBlock(knowledge);
