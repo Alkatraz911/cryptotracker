@@ -7,3 +7,4 @@ frontend/node_modules/
 frontend/.env
 frontend/dist
 server/data/provider-health.json
+server/tsconfig.tsbuildinfo
