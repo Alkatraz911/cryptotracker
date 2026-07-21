@@ -37,6 +37,11 @@ import { UsageEvent } from './analytics/entities/usage-event.entity';
         ssl: cfg.get<string>('DATABASE_URL', '').includes('sslmode=require')
           ? { rejectUnauthorized: false }
           : false,
+        // Each concurrent serverless invocation opens its own connection pool
+        // against Postgres; keep each pool small and pair with a pooled/pgbouncer
+        // connection string from the managed Postgres provider (Neon/Supabase
+        // both offer one — see DEPLOYMENT.md). Harmless for local/non-Vercel use.
+        extra: { max: 5 },
       }),
     }),
     AuthModule,
