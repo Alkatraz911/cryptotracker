@@ -198,6 +198,13 @@ export class ExplorerService {
     const perNode = Math.min(Math.max(opts.perNode ?? 25, 1), 50);
     const MAX_NODES = 120, MAX_EDGES = 800;
     let labelBudget = 80, bridgeBudget = 15;
+    // Hard wall-clock ceiling alongside the count-based ones above: the Orbiter
+    // bridge-resolve fallback (deep page search) can take tens of seconds per
+    // call, and a trace can call it up to bridgeBudget times — without this,
+    // a worst-case trace can run well past a serverless function's timeout
+    // with no partial result returned at all.
+    const budgetMs = Math.max(Number(process.env.TRACE_TIME_BUDGET_MS) || 20000, 1000);
+    const deadline = Date.now() + budgetMs;
 
     const labelCache = new Map<string, string | null>();
     const getLabel = async (net: string, addr: string): Promise<string | null> => {
@@ -217,9 +224,10 @@ export class ExplorerService {
     let nodeCount = 1;
     let frontier: Array<{ net: string; addr: string }> = [{ net: opts.network, addr: opts.address }];
 
-    for (let depth = 0; depth < maxHops && frontier.length && nodeCount < MAX_NODES && transfers.length < MAX_EDGES; depth++) {
+    for (let depth = 0; depth < maxHops && frontier.length && nodeCount < MAX_NODES && transfers.length < MAX_EDGES && Date.now() < deadline; depth++) {
       const next: Array<{ net: string; addr: string }> = [];
       for (const node of frontier) {
+        if (Date.now() > deadline) break;
         let res: { transfers: TransferItem[] };
         try { res = await this.fetchWalletTransfers(node.net, node.addr, { native: true, token: true, limit: perNode, labels: false }); }
         catch { continue; }
@@ -283,7 +291,10 @@ export class ExplorerService {
 
     return {
       transfers, hops, terminals: [...terminals],
-      stats: { nodes: nodeCount, edges: transfers.length, bridges: hops.length, terminals: terminals.size, hops: maxHops },
+      stats: {
+        nodes: nodeCount, edges: transfers.length, bridges: hops.length, terminals: terminals.size, hops: maxHops,
+        timedOut: Date.now() > deadline ? 1 : 0,
+      },
       diag: transfers.length ? null : 'Поток не прослежен — нет переводов выше порога (попробуйте снизить мин. $).',
     };
   }
