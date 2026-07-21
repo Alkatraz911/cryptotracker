@@ -16,9 +16,10 @@ import { DebridgeAdapter } from './bridges/debridge.adapter';
 import { LifiAdapter } from './bridges/lifi.adapter';
 import { AcrossAdapter } from './bridges/across.adapter';
 import { ProviderHealthService } from './provider-health.service';
+import { ProviderHealthEntry } from './entities/provider-health.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([BridgeAddress])],
+  imports: [TypeOrmModule.forFeature([BridgeAddress, ProviderHealthEntry])],
   providers: [
     ExplorerService, BridgeRegistryService, ProviderHealthService,
     EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider,

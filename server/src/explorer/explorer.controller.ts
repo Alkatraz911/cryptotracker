@@ -21,8 +21,8 @@ export class ExplorerController {
   // traffic — lets the operator see which explorer is down or has drifted instead
   // of guessing from a silent zero.
   @Get('health')
-  sourceHealth() {
-    const sources = this.health.snapshot();
+  async sourceHealth() {
+    const sources = await this.health.snapshot();
     const degraded = sources.filter((s) => s.status === 'down' || s.status === 'drift');
     return { generatedAt: Date.now(), ok: degraded.length === 0, degraded: degraded.map((s) => s.source), sources };
   }
