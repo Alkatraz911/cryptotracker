@@ -25,10 +25,15 @@ import { UsageEvent } from './analytics/entities/usage-event.entity';
         url: cfg.get<string>('DATABASE_URL'),
         entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent],
         synchronize: false,
-        // Apply pending migrations on boot so schema changes (e.g. projects.tx_cache)
-        // land without a manual CLI step.
         migrations: [__dirname + '/migrations/*.{js,ts}'],
-        migrationsRun: true,
+        // Vercel sets VERCEL=1 in both its build and runtime environments. Under
+        // Vercel, migrations run ONCE per deploy via the Build Command
+        // (`npm run build && npm run migration:run` — see DEPLOYMENT.md), not
+        // inside every serverless invocation: running migrationsRun:true on every
+        // cold start is a race risk with concurrent cold starts and adds latency
+        // to the first request of each one. Outside Vercel (local/`node dist/main`),
+        // behavior is unchanged — migrations still auto-run on boot.
+        migrationsRun: !process.env.VERCEL,
         ssl: cfg.get<string>('DATABASE_URL', '').includes('sslmode=require')
           ? { rejectUnauthorized: false }
           : false,
