@@ -2,7 +2,11 @@
 // explorer enrichment.
 import type { BuiltGraph } from "./graph";
 
-const BASE = "/api";
+// Same-origin "/api" for local dev (proxied by vite.config.ts) and for a
+// Vercel deployment where the backend is rewritten to the same origin.
+// Set VITE_API_URL to the backend's absolute origin (no /api prefix) when the
+// frontend and backend are deployed as separate Vercel Projects.
+const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api";
 const TOKEN_KEY = "ct_token";
 
 let token: string | null = localStorage.getItem(TOKEN_KEY);
