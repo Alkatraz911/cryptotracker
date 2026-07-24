@@ -8,6 +8,7 @@ import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
 import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
 import { ProviderHealthEntry } from './explorer/entities/provider-health.entity';
+import { splitDatabaseUrl } from './db-connection.util';
 
 // Standalone DataSource for the TypeORM CLI (migration generate/run/revert).
 // The running app configures TypeORM via TypeOrmModule in app.module.ts and runs
@@ -15,13 +16,13 @@ import { ProviderHealthEntry } from './explorer/entities/provider-health.entity'
 // authored/applied via the CLI. Loads .env if dotenv is available.
 try { (require('dotenv') as { config: () => void }).config(); } catch { /* env already set */ }
 
+const { url, ssl } = splitDatabaseUrl(process.env.DATABASE_URL ?? '');
+
 export default new DataSource({
   type: 'postgres',
-  url: process.env.DATABASE_URL,
+  url,
   entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
-  ssl: (process.env.DATABASE_URL ?? '').includes('sslmode=require')
-    ? { rejectUnauthorized: false }
-    : false,
+  ssl,
 });

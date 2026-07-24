@@ -70,3 +70,4 @@ that ends up.
 - `/explorer/trace` can return a partial result (`stats.timedOut: 1`) once its
   internal time budget is spent, rather than the full trace — this is by
   design (see `explorer.service.ts`'s `traceFlow()`), not a bug.
+
