@@ -44,6 +44,11 @@
   --badge-text: #0b1220;
   --overlay: rgba(0, 0, 0, 0.6);
   --shadow: rgba(0, 0, 0, 0.5);
+  /* layout — side panel widths scale with the viewport so the canvas stays
+     usable on small monitors. App.tsx overrides these inline (in px) once the
+     user drags a resizer; unset sides keep the fluid clamp. */
+  --sidebar-w: clamp(280px, 24vw, 420px);
+  --sidepanel-w: clamp(340px, 34vw, 630px);
 }
 
 [data-theme="light"] {
@@ -93,16 +98,42 @@ body, html, #root {
   background: var(--bg);
   color: var(--text);
 }
-.app { display: flex; height: 100vh; }
+/* Thin, themed scrollbars — the OS default eats ~16px of layout in every one of
+   the app's scroll containers, which the side panels can't spare. */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* position: relative anchors the overlay panels below the 1150px breakpoint;
+   overflow: hidden keeps a narrow viewport from growing a document-level
+   horizontal scrollbar instead of adapting. */
+.app { display: flex; height: 100vh; position: relative; overflow: hidden; }
 
 .sidebar {
-  width: 420px;
+  width: var(--sidebar-w);
   flex-shrink: 0;
   padding: 18px;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
+
+/* Drag handle between a side panel and the canvas. */
+.resizer {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  touch-action: none;
+  z-index: 5;
+}
+.resizer::after { /* widened hit area without widening the visible strip */
+  content: ""; position: absolute; inset: 0 -4px;
+}
+.resizer:hover, .resizer.dragging { background: var(--accent-2); }
 .sidebar h1 { margin: 0; font-size: 20px; }
 .sub { margin: 2px 0 16px; color: var(--text-faint); font-size: 12px; }
 .muted { color: var(--text-muted); font-size: 12px; margin: 10px 0 4px; }
@@ -429,7 +460,9 @@ button.danger:hover { background: var(--danger-hover); }
 
 /* transfer picker */
 .transfer-picker-wrap { overflow: hidden; height: 550px; margin-top: 4px; }
-.transfer-picker-wrap.wide { overflow-y: auto; }
+/* Both axes: the table's cells are nowrap, so on a narrow panel the rightmost
+   columns used to be clipped with no way to reach them. */
+.transfer-picker-wrap.wide { overflow: auto; }
 .transfer-picker { display: flex; flex-direction: column; gap: 3px; height: 100%; overflow-y: auto; }
 
 /* full-width transfer table (date / addresses+tags / amount / USD) */
@@ -569,7 +602,7 @@ button.danger:hover { background: var(--danger-hover); }
 
 /* ── docked right side panel ───────────────────────────────────────────────── */
 .sidepanel {
-  width: 630px; flex-shrink: 0; height: 100vh;
+  width: var(--sidepanel-w); flex-shrink: 0; height: 100%;
   background: var(--bg-panel); border-left: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -609,7 +642,7 @@ button.danger:hover { background: var(--danger-hover); }
 .sp-msub { font-size: 11px; color: var(--warn-2); }
 .sp-ml { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 
-.sp-tabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--border); }
+.sp-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .sp-tabs button {
   width: auto; margin: 0; padding: 8px 12px; background: none; border: 0;
   border-bottom: 2px solid transparent; color: var(--text-muted); font-size: 13px; border-radius: 0;
@@ -617,16 +650,27 @@ button.danger:hover { background: var(--danger-hover); }
 .sp-tabs button:hover { background: none; color: var(--text); }
 .sp-tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 
-.sp-body { flex: 1; overflow-y: auto; padding: 14px; }
+.sp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; scrollbar-gutter: stable; }
 .sp-body .details { margin-top: 0; }
 /* AI chat tab fills the panel body; the log scrolls, the input stays pinned. */
 .sp-body-ai { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* Same idea for the transactions tab: the body hands its height to the table
+   instead of scrolling, or its gutter stacks on top of the table's own and eats
+   ~30px of an already narrow panel. Filters stay put, only the table scrolls —
+   `auto` still lets the body scroll on a viewport too short for even the
+   min-height'd table below. */
+.sp-body-txs { overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; scrollbar-gutter: auto; }
 .ai-chat-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .ai-chat-panel .ai-chat-log { flex: 1; overflow-y: auto; padding: 14px; max-height: none; }
 .ai-chat-panel .ai-chat-input { padding: 12px 14px; border-top: 1px solid var(--border); }
 
 /* tx tab extras */
 .tx-tab { display: flex; flex-direction: column; gap: 4px; }
+/* Inside the panel the tab owns the leftover height and hands it to the table,
+   replacing a hardcoded calc(100vh - 470px) that collapsed on short screens. */
+.sp-body-txs .tx-tab { flex: 1; min-height: 0; }
+.sp-body-txs .tx-tab > *:not(.transfer-picker-wrap) { flex-shrink: 0; }
+.sp-body-txs .transfer-picker-wrap { flex: 1; min-height: 120px; height: auto; }
 .tx-filters { display: flex; gap: 6px; }
 .tx-filters select { padding: 4px 6px; font-size: 11px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; }
 .tx-daterow { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
@@ -722,3 +766,23 @@ button.danger:hover { background: var(--danger-hover); }
   font-family: inherit; font-size: 13px;
 }
 .ai-chat-input button { margin: 0; width: auto; padding: 9px 16px; white-space: nowrap; }
+
+/* ── narrow viewports ──────────────────────────────────────────────────────────
+   Below this width two docked panels leave the graph unusable (they'd take all
+   but ~230px at 1280). Float them over the canvas instead, so the graph keeps
+   its full width and the panels keep theirs. Both are dismissable — ☰ toggles
+   the left one, ×/Esc closes the right. */
+@media (max-width: 1150px) {
+  .sidebar {
+    position: absolute; top: 0; left: 0; bottom: 0; z-index: 41;
+    width: min(var(--sidebar-w), 88vw);
+    box-shadow: 12px 0 32px var(--shadow);
+  }
+  .sidepanel {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 40;
+    width: min(var(--sidepanel-w), 92vw);
+    box-shadow: -12px 0 32px var(--shadow);
+  }
+  /* Dragging a floating panel's edge doesn't buy canvas width — hide the handles. */
+  .resizer { display: none; }
+}

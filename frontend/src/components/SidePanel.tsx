@@ -260,7 +260,7 @@ export default function SidePanel(props: Props) {
         <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>ИИ-чат{chat.length ? ` (${chat.filter((m) => m.role === "user").length || "•"})` : ""}</button>
       </div>
 
-      <div className={`sp-body${tab === "ai" ? " sp-body-ai" : ""}`}>
+      <div className={`sp-body${tab === "ai" ? " sp-body-ai" : ""}${tab === "txs" ? " sp-body-txs" : ""}`}>
         {tab === "overview" && <OverviewTab {...props} isWallet={isWallet} isTx={node.kind === "Tx" && !!node.hash} />}
         {tab === "txs" && isWallet && (
           <TxTab
@@ -604,7 +604,7 @@ function AggTxTab({ node }: { node: GNode }) {
       <div className="picker-header">
         <span>{members.length} свёрнутых переводов{node.amount != null ? ` · Σ ${fmtAmt(node.amount)} ${node.coin ?? ""}` : ""}</span>
       </div>
-      <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll} style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
+      <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll}>
         <table className="transfer-table">
           <thead>
             <tr><th>Дата</th><th className="num">Сумма</th><th>Хеш</th></tr>
@@ -823,7 +823,7 @@ function TxTab({
             <span>{filtered.length} из {source.length}{hasRange ? " за период" : ""}{sel.size ? ` · выбрано ${sel.size}` : ""}</span>
           </div>
 
-          <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll} style={{ height: "auto", maxHeight: "calc(100vh - 470px)" }}>
+          <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll}>
             <table className="transfer-table">
               <thead>
                 <tr>

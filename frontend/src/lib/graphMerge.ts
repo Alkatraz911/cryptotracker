@@ -174,6 +174,17 @@ export function expandTransactions(graph: BuiltGraph): BuiltGraph {
     if (!inn || !dstId) continue;
     const srcId = inn.src;
     remove.add(n.id);
+    // The user drags the AGGREGATE circle, but collapseTransactions rebuilds it at
+    // the AVERAGE of its members' positions — and members keep whatever they had
+    // before folding. Carry the drag down as a delta so the round-trip
+    // (expand → collapse, which every load does) puts the circle back where the
+    // user dropped it instead of snapping to the stale member average.
+    const mx = n.members.map((m) => m.x).filter((v): v is number => v != null);
+    const my = n.members.map((m) => m.y).filter((v): v is number => v != null);
+    const avgX = mx.length ? mx.reduce((a, b) => a + b, 0) / mx.length : undefined;
+    const avgY = my.length ? my.reduce((a, b) => a + b, 0) / my.length : undefined;
+    const dx = n.x != null && avgX != null ? n.x - avgX : 0;
+    const dy = n.y != null && avgY != null ? n.y - avgY : 0;
     for (const mem of n.members) {
       const txId = `T:${mem.hash}`;
       newNodes.push({
@@ -182,7 +193,11 @@ export function expandTransactions(graph: BuiltGraph): BuiltGraph {
         net: mem.net, hash: mem.hash, amount: mem.amount, coin: mem.coin,
         color: kindColor("Tx"), degree: 1,
         explorerUrl: mem.explorerUrl, timestamp: mem.timestamp,
-        source: mem.source, fetchedAt: mem.fetchedAt, x: mem.x, y: mem.y,
+        source: mem.source, fetchedAt: mem.fetchedAt,
+        // Members that never had a position inherit the aggregate's, so a re-fold
+        // still averages back to (roughly) where the circle sits.
+        x: mem.x != null ? mem.x + dx : n.x,
+        y: mem.y != null ? mem.y + dy : n.y,
       });
       newEdges.push({ id: `${srcId}->${txId}`, source: srcId, target: txId, type: inn.type });
       newEdges.push({ id: `${txId}->${dstId}`, source: txId, target: dstId, type: "TO" });

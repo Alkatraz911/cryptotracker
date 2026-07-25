@@ -12,6 +12,7 @@ const OrbiterImport = lazy(() => import("./components/OrbiterImport"));
 const AdminPage = lazy(() => import("./components/AdminPage"));
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
+import Resizer from "./components/Resizer";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
 import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, hasAggregated, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
@@ -34,8 +35,32 @@ type ConfirmCfg = {
 // need to store or transmit them.
 const slimGraph = (g: BuiltGraph): BuiltGraph => ({ ...g, linked: [] });
 
+// Debounce before an autosave PUT, also reused as the retry delay.
+const AUTOSAVE_MS = 1500;
+
 // Cached explorer data: nodeId → network → { transfers, diag, balance }.
 type TxCacheMap = Record<string, Record<string, NodeNetCache>>;
+
+// User-chosen side panel widths. `null` = follow the fluid clamp() in styles.css,
+// which is what an untouched (or double-click reset) panel does.
+type PanelW = { left: number | null; right: number | null };
+const PANELW_KEY = "ct_panel_w";
+
+function readPanelW(): PanelW {
+  try {
+    const d = JSON.parse(localStorage.getItem(PANELW_KEY) ?? "{}");
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    return { left: num(d.left), right: num(d.right) };
+  } catch { return { left: null, right: null }; }
+}
+
+// Only pinned sides emit a custom property, so an unset side inherits the clamp.
+function panelWidthVars(w: PanelW): React.CSSProperties {
+  const s: Record<string, string> = {};
+  if (w.left !== null) s["--sidebar-w"] = `${w.left}px`;
+  if (w.right !== null) s["--sidepanel-w"] = `${w.right}px`;
+  return s as React.CSSProperties;
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -46,6 +71,19 @@ export default function App() {
   const [name, setName] = useState("");
   const [graph, setGraph] = useState<BuiltGraph>(emptyGraph());
   const [dirty, setDirty] = useState(false);
+
+  // Autosave bookkeeping — see the autosave effect below for why these are refs.
+  // `latest` is re-read at request time so a save never sends a stale closure.
+  const latest = useRef({ name, graph, currentId });
+  useEffect(() => { latest.current = { name, graph, currentId }; });
+  const pendingRef = useRef(false); // unsaved work exists
+  const savingRef = useRef(false);  // a PUT is in flight
+  const retryRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Every mutation goes through these instead of setDirty(…) so the saver's
+  // queue flag can't drift out of sync with the UI flag.
+  function markDirty() { pendingRef.current = true; setDirty(true); }
+  function markSaved() { pendingRef.current = false; clearTimeout(retryRef.current); setDirty(false); }
 
   // Undo/redo stacks of graph snapshots (structural mutations only).
   const [past, setPast] = useState<BuiltGraph[]>([]);
@@ -77,6 +115,15 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(getStoredTheme());
   const [sidebarOpen, setSidebarOpen] = useState(false); // left panel collapsed by default
   const [adminOpen, setAdminOpen] = useState(false);
+  const [panelW, setPanelW] = useState<PanelW>(readPanelW);
+
+  function setPanelWidth(side: keyof PanelW, w: number | null) {
+    setPanelW((p) => {
+      const next = { ...p, [side]: w };
+      try { localStorage.setItem(PANELW_KEY, JSON.stringify(next)); } catch { /* quota — skip */ }
+      return next;
+    });
+  }
 
   const selectedNode = useMemo(
     () => (selectedId ? graph.nodes.find((n) => n.id === selectedId) ?? null : null),
@@ -203,7 +250,9 @@ export default function App() {
     setGraph(applyView(d.graph));
     setCurrentId(d.currentId);
     setName(d.name);
-    setDirty(!d.currentId);
+    // A draft of an unsaved case still needs saving; one restored for an open
+    // project matches what's already in the DB.
+    if (d.currentId) markSaved(); else markDirty();
   }
 
   // Called after login/registration (initial and after a mid-session 401).
@@ -225,17 +274,55 @@ export default function App() {
   }, [user, currentId, name, graph]);
 
   // Autosave an OPEN project to the DB shortly after changes.
+  //
+  // The saver deliberately keeps its state in refs rather than in `dirty`: a slow
+  // PUT (Vercel cold start) used to outlive the debounce, and the response's
+  // setDirty(false) then cancelled the timer for edits made while it was in
+  // flight — silently dropping them. `pendingRef` survives that, so nothing is
+  // lost regardless of latency. `dirty` stays purely UI state (toolbar marker +
+  // unsaved-changes guard).
   useEffect(() => {
     if (!currentId || !dirty) return;
-    const t = setTimeout(() => {
-      store.updateProject(currentId, { name, graph: slimGraph(graph) })
-        .then(() => { setDirty(false); return loadProjects(); })
-        .catch(() => {});
-    }, 2000);
+    const t = setTimeout(() => { void flushSave(); }, AUTOSAVE_MS);
     return () => clearTimeout(t);
   }, [graph, name, currentId, dirty]);
 
-  // Keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redo.
+  // Flush before the tab goes away, so work isn't stuck in the debounce window.
+  // (The localStorage draft is the backstop for a hard close.)
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden") void flushSave(); };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []);
+
+  async function flushSave() {
+    const { currentId: id, name: nm, graph: g } = latest.current;
+    if (!id || !pendingRef.current || savingRef.current) return;
+    // Clear BEFORE the request: anything that changes while it's in flight
+    // re-sets the flag and gets picked up by the retry below.
+    pendingRef.current = false;
+    savingRef.current = true;
+    try {
+      await store.updateProject(id, { name: nm, graph: slimGraph(g) });
+      if (!pendingRef.current) setDirty(false);
+      await loadProjects();
+    } catch (e: any) {
+      pendingRef.current = true; // keep the work queued for the retry
+      setDirty(true);
+      flash(`Не удалось сохранить: ${e?.message ?? "ошибка сети"}`);
+    } finally {
+      savingRef.current = false;
+      if (pendingRef.current) {
+        clearTimeout(retryRef.current);
+        retryRef.current = setTimeout(() => { void flushSave(); }, AUTOSAVE_MS);
+      }
+    }
+  }
+
+  // Keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redo, Esc closes the
+  // side panel (it overlays the canvas on narrow screens, so it needs a fast way
+  // out) — but only when no modal is up, since Modal closes itself on Esc too.
+  const modalOpen = !!prompt || !!confirm || !!unsaved || importOpen || orbiterOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tgt = e.target as HTMLElement;
@@ -245,12 +332,14 @@ export default function App() {
         e.shiftKey ? redo() : undo();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
         e.preventDefault(); redo();
+      } else if (e.key === "Escape" && !modalOpen) {
+        setSelectedId(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, past, future]);
+  }, [graph, past, future, modalOpen]);
 
   async function loadProjects() { setProjects(await store.listProjects()); }
 
@@ -259,7 +348,7 @@ export default function App() {
     setPast((p) => [...p, graph].slice(-50));
     setFuture([]);
     setGraph(next);
-    setDirty(true);
+    markDirty();
   }
   // Bring a graph into the current view. In the aggregated (default) view we
   // re-fold from scratch — expand any existing aggregates first so a new transfer
@@ -278,14 +367,14 @@ export default function App() {
     setFuture((f) => [graph, ...f]);
     setGraph(past[past.length - 1]);
     setPast((p) => p.slice(0, -1));
-    setDirty(true);
+    markDirty();
   }
   function redo() {
     if (!future.length) return;
     setPast((p) => [...p, graph]);
     setGraph(future[0]);
     setFuture((f) => f.slice(1));
-    setDirty(true);
+    markDirty();
   }
   function resetHistory() { setPast([]); setFuture([]); }
 
@@ -293,7 +382,7 @@ export default function App() {
     fetchingIds.current = new Set();
     setCurrentId(null); setName(""); setGraph(emptyGraph());
     setTxCache({});
-    resetHistory(); setSelectedId(null); setFocusId(null); setDirty(false);
+    resetHistory(); setSelectedId(null); setFocusId(null); markSaved();
   }
 
   async function openProject(id: string) {
@@ -302,13 +391,13 @@ export default function App() {
     setCurrentId(p.id); setName(p.name);
     { const loaded = normalizeGraph(finalize(p.graph.nodes ?? [], p.graph.edges ?? [], p.graph.warnings ?? [], p.graph.annotations ?? [])); setGraph(applyView(loaded)); }
     setTxCache({}); // session cache; transfers come from the shared store on demand
-    resetHistory(); setSelectedId(null); setFocusId(null); setDirty(false);
+    resetHistory(); setSelectedId(null); setFocusId(null); markSaved();
   }
 
   function saveProject() {
     if (currentId) {
       store.updateProject(currentId, { name, graph: slimGraph(graph) })
-        .then(() => { setDirty(false); return loadProjects(); })
+        .then(() => { markSaved(); return loadProjects(); })
         .then(() => flash("Сохранено")).catch((e) => flash(e.message));
       return;
     }
@@ -317,7 +406,7 @@ export default function App() {
       defaultValue: name || "Новое дело", confirmText: "Сохранить",
       onSubmit: (nm) => {
         store.createProject(nm, slimGraph(graph))
-          .then((meta) => { setCurrentId(meta.id); setName(meta.name); setDirty(false); return loadProjects(); })
+          .then((meta) => { setCurrentId(meta.id); setName(meta.name); markSaved(); return loadProjects(); })
           .then(() => flash("Сохранено")).catch((e) => flash(e.message));
       },
     });
@@ -347,7 +436,7 @@ export default function App() {
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(null), 2500); }
 
   // Toolbar editable title.
-  function editTitle(nm: string) { setName(nm); setDirty(true); }
+  function editTitle(nm: string) { setName(nm); markDirty(); }
 
   // Label/network/position changes are enrichment/layout — not undoable, applied
   // with a functional update so async auto-label callbacks never go stale.
@@ -360,7 +449,7 @@ export default function App() {
         return { ...n, entityName, bridge: bridge ?? n.bridge, label: walletLabel(n.address, nets, n.net, entityName) };
       }),
     }));
-    setDirty(true);
+    markDirty();
   }
 
   function setNetNode(id: string, net: Network) {
@@ -376,13 +465,13 @@ export default function App() {
         };
       }),
     }));
-    setDirty(true);
+    markDirty();
   }
 
   // Generic non-undoable node patch (e.g. backfilling a Tx timestamp on demand).
   function patchNode(id: string, patch: Partial<GNode>) {
     setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
-    setDirty(true);
+    markDirty();
   }
 
   function savePositions(pos: Record<string, { x: number; y: number }>) {
@@ -393,7 +482,7 @@ export default function App() {
         return p ? { ...n, x: p.x, y: p.y } : n;
       }),
     }));
-    setDirty(true);
+    markDirty();
   }
 
   // Delete node(s) plus the transactions attached to them (undoable), and drop
@@ -451,7 +540,7 @@ export default function App() {
     setUnsaved(null);
     if (currentId) {
       store.updateProject(currentId, { name, graph: slimGraph(graph) })
-        .then(() => { setDirty(false); return loadProjects(); })
+        .then(() => { markSaved(); return loadProjects(); })
         .then(() => proceed())
         .catch((e) => flash(e.message));
     } else {
@@ -566,7 +655,7 @@ export default function App() {
   const has = graph.nodes.length > 0;
 
   return (
-    <div className="app">
+    <div className="app" style={panelWidthVars(panelW)}>
       {sidebarOpen && (
       <aside className="sidebar">
         <div className="userbar">
@@ -642,6 +731,10 @@ export default function App() {
         <div className="hint">Клик по узлу — панель справа · двойной клик — открыть в эксплорере</div>
       </aside>
       )}
+      {sidebarOpen && (
+        <Resizer side="left" width={panelW.left} min={240} max={640}
+          onResize={(w) => setPanelWidth("left", w)} onReset={() => setPanelWidth("left", null)} />
+      )}
 
       <main className="workspace">
         <Toolbar
@@ -710,6 +803,9 @@ export default function App() {
       </main>
 
       {selectedNode && (
+        <>
+        <Resizer side="right" width={panelW.right} min={320} max={900}
+          onResize={(w) => setPanelWidth("right", w)} onReset={() => setPanelWidth("right", null)} />
         <SidePanel
           node={selectedNode}
           graph={graph}
@@ -729,6 +825,7 @@ export default function App() {
           chat={chats[selectedNode.id] ?? []}
           onChatChange={(msgs) => setNodeChat(selectedNode.id, msgs)}
         />
+        </>
       )}
 
       {importOpen && (
