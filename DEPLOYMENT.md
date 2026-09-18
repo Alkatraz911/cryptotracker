@@ -58,6 +58,9 @@ that ends up.
     matches the chosen `AI_PROVIDER` (see `server/.env.example`).
   - `ETHERSCAN_API_KEY`, `TRONSCAN_API_KEY`, `SOLSCAN_API_KEY`,
     `HELIUS_API_KEY` — as already used locally.
+  - `NODEREAL_API_KEY` — BSC history comes from NodeReal (BscScan blocks
+    server-side fetches). Without it the shared public endpoint is used, which
+    throttles under real traffic, so set it here as well as locally.
   - `ADMIN_EMAILS`.
   - `ORBITER_INDEXER_URL` — point at wherever `orbiter-indexer` ends up
     hosted, or leave empty to query the Orbiter API directly.
