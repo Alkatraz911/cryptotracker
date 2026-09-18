@@ -388,9 +388,32 @@ export function walletNode(net: Network, address: string): GNode {
   };
 }
 
+// Transfer rows carry the entity tag of each endpoint (from the backend's
+// enrichment, or looked up while the analyst browsed the list) — stamp those onto
+// the wallet nodes, so a tag seen in the transaction list also lands on the graph
+// instead of waiting on a fresh per-node lookup that a rate-limited explorer
+// (TronScan especially) may never answer.
+type LabelledTransfer = { from?: string | null; to?: string | null; fromLabel?: string | null; toLabel?: string | null };
+
+export function applyTransferLabels(nodes: GNode[], transfers: LabelledTransfer[]): void {
+  const labelByAddr = new Map<string, string>();
+  for (const t of transfers) {
+    if (t.from && t.fromLabel) labelByAddr.set(t.from.toLowerCase(), t.fromLabel);
+    if (t.to && t.toLabel) labelByAddr.set(t.to.toLowerCase(), t.toLabel);
+  }
+  if (!labelByAddr.size) return;
+  for (const n of nodes) {
+    if (n.kind !== "Wallet" || !n.address || n.entityName) continue;
+    const l = labelByAddr.get(n.address.toLowerCase());
+    if (!l) continue;
+    n.entityName = l;
+    n.label = walletLabel(n.address, n.nets ?? (n.net && n.net !== "UNKNOWN" ? [n.net] : []), n.net, l);
+  }
+}
+
 // Convert a list of explorer transfers into a mergeable subgraph.
 export function transfersSubgraph(
-  transfers: { network: string; hash: string; from: string | null; to: string | null; amount?: number; asset?: string; timestamp?: number; source?: string | null; fetchedAt?: number | null }[]
+  transfers: { network: string; hash: string; from: string | null; to: string | null; amount?: number; asset?: string; timestamp?: number; fromLabel?: string | null; toLabel?: string | null; source?: string | null; fetchedAt?: number | null }[]
 ): { nodes: GNode[]; edges: GEdge[] } {
   const nodes: GNode[] = [];
   const edges: GEdge[] = [];
@@ -403,6 +426,7 @@ export function transfersSubgraph(
     nodes.push(...sub.nodes);
     edges.push(...sub.edges);
   }
+  applyTransferLabels(nodes, transfers);
   return { nodes, edges };
 }
 
@@ -440,21 +464,9 @@ export function traceSubgraph(
     edges.push(...sub.edges);
   }
 
-  // Apply entity tags to labelled wallets (terminals of the trace).
-  const labelByAddr = new Map<string, string>();
-  for (const t of transfers) {
-    if (t.from && t.fromLabel) labelByAddr.set(t.from.toLowerCase(), t.fromLabel);
-    if (t.to && t.toLabel) labelByAddr.set(t.to.toLowerCase(), t.toLabel);
-  }
-  for (const n of nodes) {
-    if (n.kind === "Wallet" && n.address) {
-      const l = labelByAddr.get(n.address.toLowerCase());
-      if (l && !n.entityName) {
-        n.entityName = l;
-        n.label = walletLabel(n.address, n.nets ?? (n.net && n.net !== "UNKNOWN" ? [n.net] : []), n.net, l);
-      }
-    }
-  }
+  // Apply entity tags to labelled wallets (terminals of the trace) — including the
+  // wallet nodes the bridge hops contributed.
+  applyTransferLabels(nodes, transfers);
   return { nodes, edges };
 }
 

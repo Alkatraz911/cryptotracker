@@ -42,6 +42,21 @@ const fmtAmt = (v?: number) =>
   v == null ? "" : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 const sumUsd = (ts: { usdValue?: number }[]) => ts.reduce((s, t) => s + (t.usdValue ?? 0), 0);
 
+// Stamp the tags the list already shows onto a transfer row before it goes to the
+// graph. The row itself may carry none (the backend caps enrichment per request),
+// while the panel knows them from labelled graph nodes or its own on-demand
+// lookups — without this the graph re-fetches every tag from scratch, and a
+// rate-limited explorer (TronScan) answers some of those with nothing.
+function withKnownLabels(t: Transfer, ...maps: Map<string, string>[]): Transfer {
+  const tag = (a?: string | null) => {
+    if (!a) return null;
+    const k = a.toLowerCase();
+    for (const m of maps) { const v = m.get(k); if (v) return v; }
+    return null;
+  };
+  return { ...t, fromLabel: t.fromLabel ?? tag(t.from), toLabel: t.toLabel ?? tag(t.to) };
+}
+
 // Headline balance value: total USD across all holdings, else the largest
 // holding's amount, else "не определено".
 function balanceValue(bal?: WalletBalance | null): string {
@@ -765,7 +780,7 @@ function TxTab({
   function toggle(i: number) {
     setSel((p) => { const n = new Set(p); n.has(i) ? n.delete(i) : n.add(i); return n; });
   }
-  const selTransfers = () => source.filter((_, i) => sel.has(i));
+  const selTransfers = () => source.filter((_, i) => sel.has(i)).map((t) => withKnownLabels(t, labelByAddr, fetched));
 
   return (
     <div className="tx-tab">
@@ -913,7 +928,7 @@ function LinksTab({
   function addContact(c: Contact) {
     if (!txs || !addr) return;
     const rel = txs.filter((t) => t.from?.toLowerCase() === c.addr || t.to?.toLowerCase() === c.addr);
-    onAdd(transfersSubgraph(rel));
+    onAdd(transfersSubgraph(rel.map((t) => withKnownLabels(t, labelByAddr))));
   }
 
   return (

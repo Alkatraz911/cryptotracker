@@ -153,12 +153,26 @@ export default function App() {
         !fetchingIds.current.has(n.id)
     );
     if (!candidates.length) return;
-    for (const n of candidates) {
-      fetchingIds.current.add(n.id);
-      store.addressLabel(n.net!, n.address!).then(({ label, bridge }) => {
-        if (label) labelNode(n.id, label, bridge);
-      }).catch(() => {});
-    }
+    // A few at a time, not all at once: explorers rate-limit bursts (TronScan
+    // answers a wide fan-out with HTTP 429), and a throttled lookup comes back
+    // without the tag. A failed request is un-marked so a later change retries it.
+    // Claim them now — every graph change re-runs this effect, and the batch it
+    // started keeps running (labelNode is a functional update, so a label that
+    // lands later still applies cleanly).
+    for (const n of candidates) fetchingIds.current.add(n.id);
+    void (async () => {
+      const CONC = 4;
+      for (let i = 0; i < candidates.length; i += CONC) {
+        await Promise.all(candidates.slice(i, i + CONC).map(async (n) => {
+          try {
+            const { label, bridge } = await store.addressLabel(n.net!, n.address!);
+            if (label) labelNode(n.id, label, bridge);
+          } catch {
+            fetchingIds.current.delete(n.id); // transport failure — let a later run retry
+          }
+        }));
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeKey, user]);
 

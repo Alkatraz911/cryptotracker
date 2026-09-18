@@ -12,8 +12,34 @@ export class TronProvider {
   // share a single request (TronScan rate-limits hard without a paid key).
   private accountCache = new Map<string, { data: Record<string, unknown>; at: number }>();
   private static readonly ACCOUNT_TTL = 15000;
+  // Entity tags barely change, and the graph asks for the same addresses again on
+  // every re-render — so they get their own long cache (a miss is re-checked much
+  // sooner, since it may just have been a rate-limited request).
+  private labelCache = new Map<string, { label: string | null; at: number }>();
+  private static readonly LABEL_TTL = 30 * 60_000;
+  private static readonly LABEL_MISS_TTL = 5 * 60_000;
+
+  // TronScan rate-limits bursts hard: a 15-way parallel fan-out (what the graph
+  // does when a batch of Tron wallets lands on it) comes back ~60% HTTP 429,
+  // while 2-3 in flight succeed every time. So every call passes through this
+  // gate — it's the difference between tags appearing and silently going missing.
+  private static readonly MAX_INFLIGHT = 2;
+  private inflight = 0;
+  private waiting: Array<() => void> = [];
 
   constructor(cfg: ConfigService) { this.key = () => cfg.get<string>('TRONSCAN_API_KEY', ''); }
+
+  private async acquire(): Promise<void> {
+    if (this.inflight < TronProvider.MAX_INFLIGHT) { this.inflight++; return; }
+    await new Promise<void>((resolve) => this.waiting.push(resolve)); // slot inherited from the releaser
+  }
+
+  // Hand the slot straight to the next waiter: decrementing first would let a
+  // caller arriving in between slip past the limit.
+  private release(): void {
+    const next = this.waiting.shift();
+    if (next) next(); else this.inflight--;
+  }
 
   private headers(): Record<string, string> {
     const k = this.key();
@@ -22,13 +48,21 @@ export class TronProvider {
 
   private sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+  // One gated GET. The gate is held for the request only — backoff sleeps happen
+  // outside it, so a retrying call doesn't block the others.
+  private async gatedFetch(url: string): Promise<Response> {
+    await this.acquire();
+    try { return await fetch(url, { headers: this.headers() }); }
+    finally { this.release(); }
+  }
+
   // GET JSON with backoff on rate-limit (HTTP 403/429/5xx or a rate-limit
   // message body — TronScan sometimes returns 200 with one).
   private async fetchJson(url: string, tries = 4): Promise<Record<string, unknown>> {
     let last: Record<string, unknown> = {};
     for (let i = 0; i < tries; i++) {
       try {
-        const r = await fetch(url, { headers: this.headers() });
+        const r = await this.gatedFetch(url);
         if (r.status === 429 || r.status === 403 || r.status >= 500) { await this.sleep(500 * (i + 1)); continue; }
         const j = await r.json() as Record<string, unknown>;
         last = j;
@@ -47,7 +81,9 @@ export class TronProvider {
     const c = this.accountCache.get(address);
     if (c && Date.now() - c.at < TronProvider.ACCOUNT_TTL) return c.data;
     const data = await this.fetchJson(`${TRON_BASE}/account?address=${address}`);
-    this.accountCache.set(address, { data, at: Date.now() });
+    // A call that exhausted its retries returns {} — caching that would keep the
+    // balance/tag missing for the whole TTL, long after TronScan recovered.
+    if (Object.keys(data).length) this.accountCache.set(address, { data, at: Date.now() });
     return data;
   }
 
@@ -97,12 +133,19 @@ export class TronProvider {
   }
 
   async fetchAddressLabel(address: string): Promise<{ label: string | null }> {
+    const c = this.labelCache.get(address);
+    const ttl = c?.label ? TronProvider.LABEL_TTL : TronProvider.LABEL_MISS_TTL;
+    if (c && Date.now() - c.at < ttl) return { label: c.label };
+
     const j = await this.getAccount(address);
     // TronScan exposes the exchange/entity tag in `addressTag` (e.g. "Bybit");
     // `name`/`publicTag` cover contracts and other labelled accounts.
     const raw = (j['addressTag'] || j['publicTag'] || j['name'] || '') as string;
-    const label = String(raw).trim();
-    return { label: label || null };
+    const label = String(raw).trim() || null;
+    // An exhausted-retries call returns {} — that's "we don't know", not "no tag",
+    // so it isn't cached and the next lookup asks again.
+    if (Object.keys(j).length) this.labelCache.set(address, { label, at: Date.now() });
+    return { label };
   }
 
   // Native TRX balance from the TronScan account endpoint (balance is in SUN).
