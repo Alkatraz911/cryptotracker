@@ -15,6 +15,12 @@ const SCAN_HOSTS: Record<string, string> = {
   BSC: 'https://bscscan.com',
   BASE: 'https://basescan.org',
 };
+// BscScan now answers every server-side fetch with a Cloudflare challenge (403),
+// so BSC history comes from NodeReal's enhanced RPC (nr_getAssetTransfers)
+// instead of the scraper. Their public endpoint works without registration; set
+// NODEREAL_API_KEY to use a private (higher rate-limit) one.
+const NODEREAL_HOSTS: Record<string, string> = { BSC: 'bsc-mainnet' };
+const NODEREAL_PUBLIC_KEY = '64a9df0874fb4a93b9d0a3849de012d3';
 const PUBLIC_RPC: Record<string, string> = {
   ETH:      'https://eth.llamarpc.com',
   BSC:      'https://bsc-dataseed.binance.org',
@@ -59,9 +65,11 @@ export interface WalletTransfersResult {
 export class EvmProvider {
   private readonly logger = new Logger(EvmProvider.name);
   private readonly key: () => string;
+  private readonly nodeRealKey: () => string;
 
   constructor(cfg: ConfigService) {
     this.key = () => cfg.get<string>('ETHERSCAN_API_KEY', '');
+    this.nodeRealKey = () => cfg.get<string>('NODEREAL_API_KEY', '') || NODEREAL_PUBLIC_KEY;
   }
 
   private nativeAsset(network: string): string {
@@ -419,6 +427,128 @@ export class EvmProvider {
     return { kept: kept.slice(0, limit), parsed, pages: page, failed, status };
   }
 
+  // ── NodeReal enhanced RPC (BSC) ───────────────────────────────────────────
+  private nodeRealUrl(network: string): string | null {
+    const host = NODEREAL_HOSTS[network];
+    return host ? `https://${host}.nodereal.io/v1/${this.nodeRealKey()}` : null;
+  }
+
+  private static readonly NR_PAGE = 1000;   // max rows per nr_getAssetTransfers call
+  private static readonly NR_MAX_PAGES = 3; // per direction — well past our own ceiling
+
+  // One nr_getAssetTransfers call, retrying rate-limits / 5xx with backoff.
+  private async nodeRealCall(
+    url: string, params: Record<string, unknown>, tries = 3,
+  ): Promise<{ transfers: Array<Record<string, unknown>>; pageKey?: string }> {
+    let lastErr = '';
+    for (let i = 0; i < tries; i++) {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 20000);
+      try {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'nr_getAssetTransfers', params: [params] }),
+          signal: ac.signal,
+        });
+        if (r.status === 429 || r.status >= 500) { lastErr = `HTTP ${r.status}`; await this.sleep(400 * (i + 1)); continue; }
+        const j = await r.json() as {
+          error?: { message?: string };
+          result?: { transfers?: Array<Record<string, unknown>>; pageKey?: string };
+        };
+        if (j.error) {
+          lastErr = j.error.message || 'RPC error';
+          if (!/rate|limit|busy|exceed/i.test(lastErr)) throw new Error(lastErr);
+          await this.sleep(400 * (i + 1));
+          continue;
+        }
+        return { transfers: j.result?.transfers ?? [], pageKey: j.result?.pageKey };
+      } catch (e) {
+        lastErr = (e as Error)?.message || String(e);
+        await this.sleep(400 * (i + 1));
+      } finally { clearTimeout(timer); }
+    }
+    throw new Error(lastErr || 'NodeReal: нет ответа');
+  }
+
+  // Map one nr_getAssetTransfers row to a TransferItem. Native rows that moved no
+  // value (plain contract calls) are dropped — the scraper filtered those too.
+  private mapNodeRealTransfer(network: string, r: Record<string, unknown>): TransferItem | null {
+    const hash = r['hash'] as string | undefined;
+    const from = (r['from'] as string) || null;
+    const to = (r['to'] as string) || null;
+    if (!hash || (!from && !to)) return null;
+    const isToken = String(r['category']) === '20';
+    const dec = isToken ? Number(r['decimal'] ?? 18) : 18;
+    const decimals = isNaN(dec) ? 18 : dec;
+    let amount: number;
+    try { amount = Number(BigInt((r['value'] as string) || '0x0')) / 10 ** decimals; } catch { return null; }
+    if (!isToken && amount <= 0) return null;
+    const ts = Number(r['blockTimeStamp'] ?? 0);
+    return {
+      network, hash, from, to, amount,
+      asset: isToken ? String(r['asset'] || 'TOKEN') : this.nativeAsset(network),
+      timestamp: ts ? ts * 1000 : undefined,
+    };
+  }
+
+  // Wallet history from NodeReal. The API filters on ONE endpoint per call, so
+  // outgoing (fromAddress) and incoming (toAddress) are fetched separately and
+  // merged. Categories map to our flags: 'external' = native, '20' = tokens.
+  private async fetchWalletTransfersNodeReal(
+    network: string, address: string, opts: { native: boolean; token: boolean; limit: number },
+  ): Promise<WalletTransfersResult> {
+    const url = this.nodeRealUrl(network)!;
+    const source = `nodereal:${network.toLowerCase()}`;
+    const category: string[] = [];
+    if (opts.native) category.push('external');
+    if (opts.token) category.push('20');
+    if (!category.length) return { transfers: [], diag: null, status: 'empty', source };
+
+    const seen = new Set<string>();
+    const out: TransferItem[] = [];
+    let failed: string | null = null;
+    let rowsSeen = 0;
+    const maxCount = '0x' + EvmProvider.NR_PAGE.toString(16);
+
+    // Each (category, direction) is paged on its own budget: querying native and
+    // token rows together lets a busy native wallet crowd the token transfers out
+    // of the first page — which is exactly what an analyst is looking for.
+    for (const cat of category) {
+      for (const dir of ['fromAddress', 'toAddress'] as const) {
+        let pageKey: string | undefined;
+        let kept = 0;
+        for (let page = 0; page < EvmProvider.NR_MAX_PAGES; page++) {
+          let res: { transfers: Array<Record<string, unknown>>; pageKey?: string };
+          try {
+            res = await this.nodeRealCall(url, {
+              category: [cat], [dir]: address, maxCount, order: 'desc', ...(pageKey ? { pageKey } : {}),
+            });
+          } catch (e) { failed = (e as Error)?.message || String(e); break; }
+
+          rowsSeen += res.transfers.length;
+          for (const row of res.transfers) {
+            const t = this.mapNodeRealTransfer(network, row);
+            if (!t) continue;
+            // The same tx shows up under both directions for a self-transfer, and a
+            // multi-transfer tx yields several rows — key on the whole movement.
+            const k = `${t.hash}|${t.from}|${t.to}|${row['value']}|${row['logIndex'] ?? ''}`;
+            if (seen.has(k)) continue;
+            seen.add(k);
+            out.push(t);
+            kept++;
+          }
+          pageKey = res.pageKey;
+          if (!pageKey || res.transfers.length < EvmProvider.NR_PAGE || kept >= opts.limit) break;
+        }
+      }
+    }
+
+    this.logger.log(`[NodeReal] ${network}: ${rowsSeen} rows → ${out.length} transfers${failed ? ` (ошибка: ${failed})` : ''}`);
+    if (failed && !out.length) return { transfers: [], diag: `${network}: NodeReal недоступен — ${failed}`, status: 'down', source };
+    return { transfers: out, diag: out.length ? null : failed, status: out.length ? 'ok' : 'empty', source };
+  }
+
   private async fetchWalletTransfersScan(
     network: string, address: string, opts: { native: boolean; token: boolean; limit: number },
   ): Promise<WalletTransfersResult> {
@@ -460,7 +590,14 @@ export class EvmProvider {
     const chainid = EVM_CHAINS[network];
     if (!chainid) return { transfers: [], diag: `unsupported EVM network: ${network}`, status: 'down', source: 'evm' };
 
-    // Chains not on Etherscan free tier → BscScan / BaseScan HTML scraping
+    // Chains off the Etherscan free tier: NodeReal's indexed API where we have
+    // one (BSC), else BscScan / BaseScan HTML scraping.
+    if (network in NODEREAL_HOSTS) {
+      const nr = await this.fetchWalletTransfersNodeReal(network, address, opts);
+      if (nr.status !== 'down' || !(network in SCAN_HOSTS)) return nr;
+      const scan = await this.fetchWalletTransfersScan(network, address, opts); // last resort
+      return scan.transfers.length ? scan : nr;
+    }
     if (network in SCAN_HOSTS) {
       return this.fetchWalletTransfersScan(network, address, opts);
     }
@@ -548,7 +685,23 @@ export class EvmProvider {
 
   private async discoverTokenContracts(network: string, address: string): Promise<Map<string, { symbol?: string; decimals?: number }>> {
     const m = new Map<string, { symbol?: string; decimals?: number }>();
-    // Scan-scraped chains (BSC/BASE): pull contract addresses from the token-tx page.
+    // NodeReal chains (BSC): the token rows carry contract + symbol + decimals.
+    if (network in NODEREAL_HOSTS) {
+      const url = this.nodeRealUrl(network)!;
+      for (const dir of ['fromAddress', 'toAddress'] as const) {
+        try {
+          const res = await this.nodeRealCall(url, { category: ['20'], [dir]: address, maxCount: '0x64', order: 'desc' });
+          for (const r of res.transfers) {
+            const c = String(r['contractAddress'] || '').toLowerCase();
+            if (!c || m.has(c) || m.size >= 40) continue;
+            const d = Number(r['decimal'] ?? 18);
+            m.set(c, { symbol: (r['asset'] as string) || undefined, decimals: isNaN(d) ? undefined : d });
+          }
+        } catch { /* skip this direction */ }
+      }
+      return m;
+    }
+    // Scan-scraped chains (BASE): pull contract addresses from the token-tx page.
     if (network in SCAN_HOSTS) {
       const html = await this.fetchScanPage(`${SCAN_HOSTS[network]}/tokentxns?a=${address}&ps=100&p=1`, SCAN_HOSTS[network]);
       if (html) for (const mm of html.matchAll(/\/token\/(0x[0-9a-fA-F]{40})/g)) { if (m.size < 40) m.set(mm[1].toLowerCase(), {}); }
