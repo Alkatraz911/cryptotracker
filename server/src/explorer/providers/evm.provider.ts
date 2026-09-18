@@ -436,9 +436,11 @@ export class EvmProvider {
   private static readonly NR_PAGE = 1000;   // max rows per nr_getAssetTransfers call
   private static readonly NR_MAX_PAGES = 3; // per direction — well past our own ceiling
 
-  // One nr_getAssetTransfers call, retrying rate-limits / 5xx with backoff.
+  // One nr_getAssetTransfers call, retrying rate-limits / 5xx with backoff. A 429
+  // waits noticeably longer than a transport hiccup: the shared public endpoint
+  // throttles per minute, so retrying in 400ms just spends another attempt.
   private async nodeRealCall(
-    url: string, params: Record<string, unknown>, tries = 3,
+    url: string, params: Record<string, unknown>, tries = 4,
   ): Promise<{ transfers: Array<Record<string, unknown>>; pageKey?: string }> {
     let lastErr = '';
     for (let i = 0; i < tries; i++) {
@@ -451,7 +453,11 @@ export class EvmProvider {
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'nr_getAssetTransfers', params: [params] }),
           signal: ac.signal,
         });
-        if (r.status === 429 || r.status >= 500) { lastErr = `HTTP ${r.status}`; await this.sleep(400 * (i + 1)); continue; }
+        if (r.status === 429 || r.status >= 500) {
+          lastErr = `HTTP ${r.status}`;
+          if (i < tries - 1) await this.sleep(r.status === 429 ? 1500 * (i + 1) : 400 * (i + 1));
+          continue;
+        }
         const j = await r.json() as {
           error?: { message?: string };
           result?: { transfers?: Array<Record<string, unknown>>; pageKey?: string };
@@ -465,10 +471,19 @@ export class EvmProvider {
         return { transfers: j.result?.transfers ?? [], pageKey: j.result?.pageKey };
       } catch (e) {
         lastErr = (e as Error)?.message || String(e);
-        await this.sleep(400 * (i + 1));
+        if (i < tries - 1) await this.sleep(400 * (i + 1));
       } finally { clearTimeout(timer); }
     }
     throw new Error(lastErr || 'NodeReal: нет ответа');
+  }
+
+  // Turn a NodeReal failure into something the analyst can act on: the shared
+  // public endpoint is the usual reason for a throttle, and a free key lifts it.
+  private nodeRealDiag(err: string): string {
+    if (!/429/.test(err)) return `NodeReal недоступен — ${err}`;
+    return this.nodeRealKey() === NODEREAL_PUBLIC_KEY
+      ? 'лимит публичного эндпоинта NodeReal исчерпан — укажите бесплатный ключ в NODEREAL_API_KEY (nodereal.io)'
+      : 'лимит ключа NodeReal исчерпан — попробуйте позже';
   }
 
   // Map one nr_getAssetTransfers row to a TransferItem. Native rows that moved no
@@ -509,7 +524,15 @@ export class EvmProvider {
     const out: TransferItem[] = [];
     let failed: string | null = null;
     let rowsSeen = 0;
-    const maxCount = '0x' + EvmProvider.NR_PAGE.toString(16);
+    // Budget per query, not per call: the four (category, direction) queries are
+    // merged into one answer, so each only needs half the limit — asking each for
+    // the whole thing pulled four times the rows the caller can use, which is what
+    // gets the shared endpoint to throttle us. And ask for what we'll keep: an
+    // auto-trace wants 25 rows per node, and pulling 1000 for it burns latency its
+    // wall-clock budget can't spare. A short page just means another page.
+    const perQuery = Math.max(Math.ceil(opts.limit / 2), 25);
+    const pageSize = Math.min(EvmProvider.NR_PAGE, Math.max(perQuery, 100));
+    const maxCount = '0x' + pageSize.toString(16);
 
     // Each (category, direction) is paged on its own budget: querying native and
     // token rows together lets a busy native wallet crowd the token transfers out
@@ -539,13 +562,13 @@ export class EvmProvider {
             kept++;
           }
           pageKey = res.pageKey;
-          if (!pageKey || res.transfers.length < EvmProvider.NR_PAGE || kept >= opts.limit) break;
+          if (!pageKey || res.transfers.length < pageSize || kept >= perQuery) break;
         }
       }
     }
 
     this.logger.log(`[NodeReal] ${network}: ${rowsSeen} rows → ${out.length} transfers${failed ? ` (ошибка: ${failed})` : ''}`);
-    if (failed && !out.length) return { transfers: [], diag: `${network}: NodeReal недоступен — ${failed}`, status: 'down', source };
+    if (failed && !out.length) return { transfers: [], diag: `${network}: ${this.nodeRealDiag(failed)}`, status: 'down', source };
     return { transfers: out, diag: out.length ? null : failed, status: out.length ? 'ok' : 'empty', source };
   }
 

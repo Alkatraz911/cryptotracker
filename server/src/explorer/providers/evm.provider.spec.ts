@@ -66,6 +66,33 @@ describe('EvmProvider · BSC via NodeReal', () => {
     expect(res.transfers).toHaveLength(1);
   });
 
+  it('sizes the page to the requested limit', async () => {
+    const asked: number[] = [];
+    global.fetch = jest.fn(async (_url: unknown, init: { body: string }) => {
+      asked.push(parseInt(JSON.parse(init.body).params[0].maxCount, 16));
+      return { status: 200, ok: true, json: async () => ({ result: { transfers: [row({})] } }) };
+    }) as unknown as typeof fetch;
+
+    const p = new EvmProvider(cfg);
+    await p.fetchWalletTransfers('BSC', ADDR, { native: true, token: false, limit: 25 });
+    await p.fetchWalletTransfers('BSC', ADDR, { native: true, token: false, limit: 2000 });
+
+    expect(asked[0]).toBe(100);   // a trace-sized request doesn't pull 1000 rows
+    expect(Math.max(...asked)).toBe(1000); // the full-history request still does
+  });
+
+  it('points at the free-key fix when the shared endpoint throttles us', () => {
+    // Reaching the mapping directly — a real 429 run spends its backoff budget.
+    const diag = (p: EvmProvider, err: string) => (p as unknown as { nodeRealDiag: (e: string) => string }).nodeRealDiag(err);
+
+    const shared = new EvmProvider(cfg);
+    expect(diag(shared, 'HTTP 429')).toMatch(/NODEREAL_API_KEY/);
+    expect(diag(shared, 'HTTP 500')).not.toMatch(/NODEREAL_API_KEY/);
+
+    const own = new EvmProvider({ get: (k: string, d: string) => (k === 'NODEREAL_API_KEY' ? 'own-key' : d) } as unknown as ConfigService);
+    expect(diag(own, 'HTTP 429')).toMatch(/лимит ключа/);
+  });
+
   // Retries + the scraper fallback make this slower than the 5s default.
   it('surfaces a NodeReal outage as down (so the health banner fires)', async () => {
     global.fetch = jest.fn(async () => ({ status: 500, ok: false, json: async () => ({}) })) as unknown as typeof fetch;
