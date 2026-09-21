@@ -8,6 +8,7 @@ import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
 import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
 import { ProviderHealthEntry } from './explorer/entities/provider-health.entity';
+import { FeedbackEntry } from './feedback/entities/feedback-entry.entity';
 import { splitDatabaseUrl } from './db-connection.util';
 
 // Standalone DataSource for the TypeORM CLI (migration generate/run/revert).
@@ -21,7 +22,7 @@ const { url, ssl } = splitDatabaseUrl(process.env.DATABASE_URL ?? '');
 export default new DataSource({
   type: 'postgres',
   url,
-  entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry],
+  entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry, FeedbackEntry],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
   ssl,

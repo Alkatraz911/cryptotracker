@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { store, type AdminUser, type Analytics, type BridgeAddress, type User } from "../lib/store";
+import { Fragment, useEffect, useState } from "react";
+import { store, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type User } from "../lib/store";
 
-type Tab = "analytics" | "users" | "bridges";
+type Tab = "analytics" | "users" | "bridges" | "feedback";
 
 export default function AdminPage({ user, onClose }: { user: User; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>("analytics");
@@ -16,11 +16,13 @@ export default function AdminPage({ user, onClose }: { user: User; onClose: () =
         <button className={tab === "analytics" ? "active" : ""} onClick={() => setTab("analytics")}>Аналитика</button>
         <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>Пользователи</button>
         <button className={tab === "bridges" ? "active" : ""} onClick={() => setTab("bridges")}>Мосты</button>
+        <button className={tab === "feedback" ? "active" : ""} onClick={() => setTab("feedback")}>Обратная связь</button>
       </nav>
       <div className="admin-page-body">
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "users" && <UsersTab selfId={user.id} />}
         {tab === "bridges" && <BridgesTab />}
+        {tab === "feedback" && <FeedbackTab />}
       </div>
     </div>
   );
@@ -227,6 +229,78 @@ function BridgesTab() {
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={4} className="muted">Пусто</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ── Feedback inbox ───────────────────────────────────────────────────────────
+const KIND_LABEL: Record<string, string> = { bug: "🐞 ошибка", idea: "💡 идея" };
+
+function FeedbackTab() {
+  const [filter, setFilter] = useState<FeedbackStatus | "all">("new");
+  const [rows, setRows] = useState<FeedbackEntry[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+
+  function load() {
+    setErr(null);
+    store.listFeedback(filter === "all" ? undefined : filter).then(setRows).catch((e) => setErr(e.message));
+  }
+  useEffect(load, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function toggle(e: FeedbackEntry) {
+    const status: FeedbackStatus = e.status === "new" ? "done" : "new";
+    try {
+      const u = await store.setFeedbackStatus(e.id, status);
+      setRows((r) => (r ?? []).map((x) => (x.id === u.id ? { ...x, status: u.status } : x)));
+    } catch (ex: any) { setErr(ex.message); }
+  }
+
+  return (
+    <div className="admin-section">
+      <div className="admin-rangebar">
+        <span className="muted">Показать:</span>
+        {([["new", "новые"], ["done", "разобранные"], ["all", "все"]] as const).map(([v, l]) => (
+          <button key={v} className={`admin-range${filter === v ? " active" : ""}`} onClick={() => setFilter(v)}>{l}</button>
+        ))}
+      </div>
+      {err && <div className="error">{err}</div>}
+      {!rows ? <p className="muted">Загрузка…</p> : rows.length === 0 ? <p className="muted">Пусто.</p> : (
+        <table className="admin-table fb-table">
+          <thead><tr><th>Дата</th><th>Тип</th><th>Тема</th><th>От кого</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((e) => (
+              <Fragment key={e.id}>
+                <tr className={`fb-row${e.status === "done" ? " done" : ""}`} onClick={() => setOpen(open === e.id ? null : e.id)}>
+                  <td className="tdate">{new Date(e.createdAt).toLocaleString()}</td>
+                  <td>{KIND_LABEL[e.kind] ?? e.kind}</td>
+                  <td className="fb-title">{e.title}</td>
+                  <td className="admin-addr">{e.email}</td>
+                  <td className="admin-actions">
+                    <button onClick={(ev) => { ev.stopPropagation(); void toggle(e); }}>
+                      {e.status === "new" ? "✓ разобрано" : "↩ в новые"}
+                    </button>
+                  </td>
+                </tr>
+                {open === e.id && (
+                  <tr className="fb-detail">
+                    <td colSpan={5}>
+                      <pre className="fb-message">{e.message}</pre>
+                      {e.context && (
+                        <dl className="fb-ctx">
+                          {Object.entries(e.context).filter(([, v]) => v != null && v !== "").map(([k, v]) => (
+                            <Fragment key={k}><dt>{k}</dt><dd>{String(v)}</dd></Fragment>
+                          ))}
+                        </dl>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       )}

@@ -39,6 +39,13 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 export interface User { id: string; email: string; role?: "user" | "admin" }
 export interface BridgeAddress { address: string; bridge: string; name: string; createdAt?: string }
 export interface AdminUser { id: string; email: string; role: string; createdAt: string }
+export type FeedbackKind = "bug" | "idea";
+export type FeedbackStatus = "new" | "done";
+export interface FeedbackEntry {
+  id: string; userId: string; email: string; kind: FeedbackKind;
+  title: string; message: string; context: Record<string, unknown> | null;
+  status: FeedbackStatus; createdAt: string;
+}
 
 export interface ModuleStat { module: string; count: number; users: number }
 export interface AdminUserStat {
@@ -157,6 +164,14 @@ export const store = {
     req<AdminUser>(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteUser: (id: string) =>
     req<{ ok: boolean }>(`/admin/users/${id}`, { method: "DELETE" }),
+
+  // ── Feedback (bug reports / ideas) ───────────────────────────────────────
+  sendFeedback: (body: { kind: FeedbackKind; title: string; message: string; context?: Record<string, unknown> }) =>
+    req<{ id: string; createdAt: string }>("/feedback", { method: "POST", body: JSON.stringify(body) }),
+  listFeedback: (status?: FeedbackStatus) =>
+    req<FeedbackEntry[]>(`/admin/feedback${status ? `?status=${status}` : ""}`),
+  setFeedbackStatus: (id: string, status: FeedbackStatus) =>
+    req<FeedbackEntry>(`/admin/feedback/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
 
   // ── Admin: analytics ─────────────────────────────────────────────────────
   getAnalytics: (days = 30) => req<Analytics>(`/admin/analytics?days=${days}`),

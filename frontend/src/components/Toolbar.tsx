@@ -25,6 +25,7 @@ interface Props {
   onToggleCollapse: () => void;
   theme: Theme;
   onToggleTheme: () => void;
+  onFeedback: () => void;
   onExportJson: () => void;
   onExportPng: () => void;
   onExportReport: () => void;
@@ -38,7 +39,7 @@ export default function Toolbar({
   canUndo, canRedo, onUndo, onRedo,
   hasGraph, onForceLayout, onStructure, mergeMode, onToggleMerge, deleteMode, onToggleDelete,
   collapsed, onToggleCollapse,
-  theme, onToggleTheme, onExportJson, onExportPng, onExportReport,
+  theme, onToggleTheme, onFeedback, onExportJson, onExportPng, onExportReport,
 }: Props) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -147,6 +148,7 @@ export default function Toolbar({
       <button className="tb-btn" onClick={onToggleTheme} title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}>
         {theme === "dark" ? "☀" : "☾"}
       </button>
+      <button className="tb-btn" onClick={onFeedback} title="Сообщить об ошибке или предложить улучшение">✉</button>
     </div>
   );
 }

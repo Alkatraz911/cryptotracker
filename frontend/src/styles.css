@@ -778,3 +778,27 @@ button.danger:hover { background: var(--danger-hover); }
   /* Dragging a floating panel's edge doesn't buy canvas width — hide the handles. */
   .resizer { display: none; }
 }
+
+/* feedback form (bug report / idea) */
+.fb-form label { display: block; margin-top: 10px; margin-bottom: 4px; font-size: 12px; }
+.fb-form input:not([type="checkbox"]), .fb-form textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; }
+.fb-form textarea { resize: vertical; min-height: 110px; line-height: 1.4; }
+.fb-kind { display: flex; gap: 6px; }
+.fb-kind button { margin: 0; flex: 1; padding: 9px 8px; font-size: 13px; }
+.fb-kind button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.fb-counter { text-align: right; font-size: 11px; color: var(--text-faint); margin-top: 3px; }
+.fb-attach { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
+.fb-attach input { margin: 0; }
+.fb-thanks { margin: 0; line-height: 1.5; }
+
+/* admin feedback inbox */
+.fb-table .fb-row { cursor: pointer; }
+.fb-table .fb-row:hover td { background: var(--bg-hover); }
+.fb-table .fb-row.done td { color: var(--text-muted); }
+.fb-table .fb-row.done .fb-title { text-decoration: line-through; }
+.fb-table .fb-title { max-width: 360px; }
+.fb-detail td { background: var(--bg-card); }
+.fb-message { margin: 0 0 8px; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; line-height: 1.45; }
+.fb-ctx { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 11px; }
+.fb-ctx dt { color: var(--text-muted); }
+.fb-ctx dd { margin: 0; color: var(--text-soft); word-break: break-all; }

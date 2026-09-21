@@ -12,6 +12,7 @@ const OrbiterImport = lazy(() => import("./components/OrbiterImport"));
 const AdminPage = lazy(() => import("./components/AdminPage"));
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
+import FeedbackModal from "./components/FeedbackModal";
 import Resizer from "./components/Resizer";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
@@ -106,6 +107,7 @@ export default function App() {
   const [msg, setMsg] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [orbiterOpen, setOrbiterOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [layoutKey, setLayoutKey] = useState(0);
   const [structureKey, setStructureKey] = useState(0);
   // Canvas multi-select mode: pick several nodes for a bulk action (merge into
@@ -336,7 +338,7 @@ export default function App() {
   // Keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redo, Esc closes the
   // side panel (it overlays the canvas on narrow screens, so it needs a fast way
   // out) — but only when no modal is up, since Modal closes itself on Esc too.
-  const modalOpen = !!prompt || !!confirm || !!unsaved || importOpen || orbiterOpen;
+  const modalOpen = !!prompt || !!confirm || !!unsaved || importOpen || orbiterOpen || feedbackOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tgt = e.target as HTMLElement;
@@ -658,6 +660,7 @@ export default function App() {
         <div className="userbar">
           <span className="email">{user.email}</span>
           {user.role === "admin" && <button className="link" onClick={() => setAdminOpen(true)}>⚙ Админ</button>}
+          <button className="link" onClick={() => setFeedbackOpen(true)} title="Сообщить об ошибке или предложить улучшение">✉ Отзыв</button>
           <button className="link" onClick={logout}>Выйти</button>
         </div>
 
@@ -757,6 +760,7 @@ export default function App() {
           onToggleCollapse={toggleCollapseTx}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onFeedback={() => setFeedbackOpen(true)}
           onExportJson={exportJson}
           onExportPng={exportPng}
           onExportReport={exportReport}
@@ -840,6 +844,9 @@ export default function App() {
             />
           </Suspense>
         </Modal>
+      )}
+      {feedbackOpen && (
+        <FeedbackModal projectId={currentId} projectName={name} onClose={() => setFeedbackOpen(false)} />
       )}
       {unsaved && (
         <Modal title="Несохранённые изменения" onClose={() => setUnsaved(null)}>

@@ -8,6 +8,7 @@ import { ExplorerModule } from './explorer/explorer.module';
 import { ChainDataModule } from './chaindata/chaindata.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AiModule } from './ai/ai.module';
+import { FeedbackModule } from './feedback/feedback.module';
 import { User } from './users/entities/user.entity';
 import { Project } from './projects/entities/project.entity';
 import { Wallet } from './chaindata/entities/wallet.entity';
@@ -16,6 +17,7 @@ import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
 import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
 import { ProviderHealthEntry } from './explorer/entities/provider-health.entity';
+import { FeedbackEntry } from './feedback/entities/feedback-entry.entity';
 import { splitDatabaseUrl } from './db-connection.util';
 
 @Module({
@@ -28,7 +30,7 @@ import { splitDatabaseUrl } from './db-connection.util';
         return {
           type: 'postgres' as const,
           url,
-          entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry],
+          entities: [User, Project, Wallet, Transaction, BridgeAddress, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry, FeedbackEntry],
           synchronize: false,
           migrations: [__dirname + '/migrations/*.{js,ts}'],
           // Vercel sets VERCEL=1 in both its build and runtime environments. Under
@@ -55,6 +57,7 @@ import { splitDatabaseUrl } from './db-connection.util';
     ChainDataModule,
     AnalyticsModule,
     AiModule,
+    FeedbackModule,
   ],
 })
 export class AppModule {}
