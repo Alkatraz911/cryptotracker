@@ -19,7 +19,6 @@ interface Props {
   onLabel: (id: string, entityName: string, bridge?: string) => void;
   onSetNet: (id: string, net: Network) => void;
   onUnmerge: (id: string) => void;
-  onTrace: (node: GNode, opts: { network: Network; direction: "out" | "in"; hops: number; minUsd: number }) => Promise<string>;
   onFocus: (id: string) => void;
   onPatchNode: (id: string, patch: Partial<GNode>) => void;
   cache: Record<string, NodeNetCache>;
@@ -330,7 +329,7 @@ function Metric({ label, value, sub, loading, title }: { label: string; value: s
 type OverviewProps = Props & { isWallet: boolean; isTx: boolean };
 
 function OverviewTab({
-  node, graph, onAdd, onRemove, onSaveAnnotation, onDeleteAnnotation, onLabel, onSetNet, onUnmerge, onTrace,
+  node, graph, onAdd, onRemove, onSaveAnnotation, onDeleteAnnotation, onLabel, onSetNet, onUnmerge,
   isWallet, isTx,
 }: OverviewProps) {
   const isEntity = node.kind === "Entity" && !!node.mergedFrom;
@@ -360,11 +359,6 @@ function OverviewTab({
   const [bridgeBusy, setBridgeBusy] = useState(false);
   const [bridgeMsg, setBridgeMsg] = useState<string | null>(null);
 
-  const [traceDir, setTraceDir] = useState<"out" | "in">("out");
-  const [traceHops, setTraceHops] = useState(3);
-  const [traceMinUsd, setTraceMinUsd] = useState(50);
-  const [traceBusy, setTraceBusy] = useState(false);
-  const [traceMsg, setTraceMsg] = useState<string | null>(null);
 
   useEffect(() => { setConfirmDel(false); setAnnText(""); setAnnKind("note"); }, [node.id]);
 
@@ -406,15 +400,6 @@ function OverviewTab({
       } else setBridgeMsg(diag ?? "Кроссчейн-перевод не найден.");
     } catch (e: any) { setBridgeMsg(e.message ?? "Ошибка запроса к мосту"); }
     finally { setBridgeBusy(false); }
-  }
-
-  async function runTrace() {
-    const network = (node.net && node.net !== "UNKNOWN" ? node.net : "ETH") as Network;
-    setTraceBusy(true); setTraceMsg(null);
-    try {
-      setTraceMsg(await onTrace(node, { network, direction: traceDir, hops: traceHops, minUsd: traceMinUsd }));
-    } catch (e: any) { setTraceMsg(e.message ?? "Ошибка трейса"); }
-    finally { setTraceBusy(false); }
   }
 
   return (
@@ -515,29 +500,6 @@ function OverviewTab({
           <button className="primary" onClick={addAnnotation} disabled={!annText.trim()}>Добавить</button>
         </div>
       </div>
-
-      {isWallet && (
-        <div className="tracebox">
-          <strong>🔥 Проследить поток (follow the money)</strong>
-          <div className="ltchecks">
-            <label>направление
-              <select value={traceDir} onChange={(e) => setTraceDir(e.target.value as "out" | "in")}>
-                <option value="out">куда ушли (out)</option>
-                <option value="in">откуда пришли (in)</option>
-              </select>
-            </label>
-            <label className="lim">хопов <input type="number" min={1} max={5} value={traceHops}
-              onChange={(e) => setTraceHops(Math.min(5, Math.max(1, Number(e.target.value) || 1)))} /></label>
-            <label className="lim">мин $ <input type="number" min={0} value={traceMinUsd}
-              onChange={(e) => setTraceMinUsd(Math.max(0, Number(e.target.value) || 0))} /></label>
-          </div>
-          {traceMsg && <div className="flash">{traceMsg}</div>}
-          <button className="primary" onClick={runTrace} disabled={traceBusy}>
-            {traceBusy ? "Трассировка…" : "Проследить поток"}
-          </button>
-          <p className="muted">Разворачивает цепочку переводов, прыгает через мосты и останавливается на биржах.</p>
-        </div>
-      )}
 
       <div className="delbox">
         {confirmDel ? (

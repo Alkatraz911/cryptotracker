@@ -172,19 +172,6 @@ export const store = {
     );
   },
 
-  // Auto-trace value flow from a wallet ("follow the money").
-  async traceFlow(opts: {
-    network: string; address: string;
-    direction?: "out" | "in"; hops?: number; minUsd?: number; perNode?: number;
-  }): Promise<{ transfers: Transfer[]; hops: OrbiterHop[]; terminals: string[]; stats: Record<string, number>; diag: string | null }> {
-    const q = new URLSearchParams({ network: opts.network, address: opts.address });
-    if (opts.direction) q.set("direction", opts.direction);
-    if (opts.hops != null) q.set("hops", String(opts.hops));
-    if (opts.minUsd != null) q.set("minUsd", String(opts.minUsd));
-    if (opts.perNode != null) q.set("perNode", String(opts.perNode));
-    return req(`/explorer/trace?${q}`);
-  },
-
   // Resolve a tx hash to its Orbiter cross-chain counterpart.
   // chainId is optional — the direct lookup works by hash alone; it only helps
   // the older-history feed fallback.

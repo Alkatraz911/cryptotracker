@@ -448,28 +448,6 @@ function crossChainTxNode(
   };
 }
 
-// Assemble the result of an auto-trace into a mergeable subgraph: wallet→tx→
-// wallet for every discovered transfer, cross-chain bridge hops, and entity
-// names applied to labelled (terminal) wallets so exchanges/contracts stand out.
-export function traceSubgraph(
-  transfers: Array<{ network: string; hash: string; from: string | null; to: string | null; amount?: number; asset?: string; timestamp?: number; fromLabel?: string | null; toLabel?: string | null }>,
-  hops: OrbiterHop[],
-): { nodes: GNode[]; edges: GEdge[] } {
-  const base = transfersSubgraph(transfers);
-  const nodes = [...base.nodes];
-  const edges = [...base.edges];
-  for (const h of hops) {
-    const sub = bridgeSubgraph(h);
-    nodes.push(...sub.nodes);
-    edges.push(...sub.edges);
-  }
-
-  // Apply entity tags to labelled wallets (terminals of the trace) — including the
-  // wallet nodes the bridge hops contributed.
-  applyTransferLabels(nodes, transfers);
-  return { nodes, edges };
-}
-
 // Build the cross-chain subgraph for an Orbiter hop: source tx → BRIDGE → target
 // tx, plus sender/recipient wallet nodes when the hash lookup provided them.
 export function bridgeSubgraph(hop: OrbiterHop, anchorSourceId?: string): { nodes: GNode[]; edges: GEdge[] } {

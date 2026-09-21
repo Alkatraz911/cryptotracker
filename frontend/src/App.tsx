@@ -15,7 +15,7 @@ import Modal from "./components/Modal";
 import Resizer from "./components/Resizer";
 import Toolbar from "./components/Toolbar";
 import { store, type AiMsg, type NodeNetCache, type ProjectMeta, type User } from "./lib/store";
-import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, hasAggregated, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, traceSubgraph, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
+import { collapseTransactions, deleteAnnotation, emptyGraph, expandTransactions, finalize, hasAggregated, mergeEntities, mergeGraphs, normalizeGraph, removeNodesCascadeTx, unmergeEntity, upsertAnnotation } from "./lib/graphMerge";
 import { walletLabel, type BuiltGraph, type GAnnotation, type GEdge, type GNode } from "./lib/graph";
 import { addressUrl, networkColor, type Network } from "./lib/explorers";
 import { applyTheme, getStoredTheme, type Theme } from "./lib/theme";
@@ -626,23 +626,6 @@ export default function App() {
     setSelectedId(null);
   }
 
-  async function traceFlow(
-    node: GNode,
-    opts: { network: Network; direction: "out" | "in"; hops: number; minUsd: number },
-  ): Promise<string> {
-    if (!node.address) return "У узла нет адреса для трассировки.";
-    const { transfers, hops, terminals, stats, diag } = await store.traceFlow({
-      network: opts.network, address: node.address,
-      direction: opts.direction, hops: opts.hops, minUsd: opts.minUsd,
-    });
-    if (!transfers.length) return diag ?? "Поток не прослежен.";
-    const sub = traceSubgraph(transfers, hops);
-    applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)));
-    setStructureKey((k) => k + 1); // auto hierarchical layout to reveal the flow
-    return `Прослежено: узлов ${stats.nodes ?? "?"}, переводов ${transfers.length}` +
-      `${hops.length ? `, мостов ${hops.length}` : ""}${terminals.length ? `, остановок (биржи/контракты) ${terminals.length}` : ""}.`;
-  }
-
   // Focus a node on the canvas and open its panel (from lists / search / contacts).
   function focus(id: string) {
     if (!graph.nodes.some((n) => n.id === id)) { flash("Узел не найден на графе"); return; }
@@ -831,7 +814,6 @@ export default function App() {
           onLabel={labelNode}
           onSetNet={setNetNode}
           onUnmerge={unmergeNode}
-          onTrace={traceFlow}
           onFocus={focus}
           onPatchNode={patchNode}
           cache={txCache[selectedNode.id] ?? {}}

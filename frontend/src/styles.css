@@ -375,14 +375,6 @@ button.danger:hover { background: var(--danger-hover); }
 .ltchecks .lim { margin-left: auto; }
 .ltchecks .lim input { width: 56px; padding: 4px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; }
 
-/* auto-trace ("follow the money") block in node modal */
-.tracebox { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.tracebox > strong { font-size: 13px; }
-.tracebox .ltchecks { flex-wrap: wrap; }
-.tracebox select { padding: 5px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; }
-.tracebox .lim input { width: 60px; }
-.tracebox .muted { margin-top: 6px; }
-
 /* Orbiter cross-chain bridge block in node modal */
 .bridgebox { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .bridgebox > strong { font-size: 13px; }
