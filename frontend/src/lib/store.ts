@@ -38,6 +38,8 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export interface User { id: string; email: string; role?: "user" | "admin" }
 export interface BridgeAddress { address: string; bridge: string; name: string; createdAt?: string }
+export type LabelSource = "manual" | "okx" | "tronscan" | "etherscan" | "solscan" | string;
+export interface AddressLabelEntry { address: string; label: string; source: LabelSource; createdBy: string | null; createdAt: string; updatedAt: string }
 export interface AdminUser { id: string; email: string; role: string; createdAt: string }
 export type FeedbackKind = "bug" | "idea";
 export type FeedbackStatus = "new" | "done";
@@ -155,6 +157,15 @@ export const store = {
     req<BridgeAddress>("/explorer/bridges", { method: "POST", body: JSON.stringify(b) }),
   removeBridge: (address: string) =>
     req<{ ok: boolean }>(`/explorer/bridges/${encodeURIComponent(address)}`, { method: "DELETE" }),
+
+  // ── Address label registry (shared) ─────────────────────────────────────
+  setLabel: (e: { address: string; label: string; source?: "manual" | "okx" }) =>
+    req<AddressLabelEntry>("/explorer/labels", { method: "POST", body: JSON.stringify(e) }),
+  listLabels: () => req<AddressLabelEntry[]>("/explorer/labels"),
+  importLabels: (entries: { address: string; label: string; source?: "manual" | "okx" }[]) =>
+    req<{ imported: number }>("/explorer/labels/import", { method: "POST", body: JSON.stringify({ entries }) }),
+  removeLabel: (address: string) =>
+    req<{ ok: boolean }>(`/explorer/labels/${encodeURIComponent(address)}`, { method: "DELETE" }),
 
   // ── Admin: users ─────────────────────────────────────────────────────────
   listUsers: () => req<AdminUser[]>("/admin/users"),

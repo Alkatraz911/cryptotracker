@@ -215,3 +215,15 @@ export function parseExplorerUrl(url: string): ExplorerRef | null {
   }
   return null;
 }
+
+// OKX Web3 explorer address page — the richest public source of entity tags
+// ("Binance Hot Wallet", "FixedFloat. User"). It can't be queried server-side
+// (device-risk check), so the app links there for the investigator to read the
+// tag and save it to the shared label registry.
+const OKX_SLUGS: Record<Exclude<Network, "UNKNOWN">, string> = {
+  ETH: "ethereum", BSC: "bsc", POLYGON: "polygon", ARBITRUM: "arbitrum-one", BASE: "base", TRON: "tron", SOLANA: "sol",
+};
+export function okxAddressUrl(net: Network, addr: string): string | null {
+  if (net === "UNKNOWN") return null;
+  return `https://web3.okx.com/explorer/${OKX_SLUGS[net]}/${net === "SOLANA" ? "account" : "address"}/${addr}`;
+}

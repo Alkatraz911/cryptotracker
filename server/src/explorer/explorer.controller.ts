@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { ExplorerService } from './explorer.service';
@@ -6,6 +6,11 @@ import { BridgeRegistryService } from './bridge-registry.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService } from './provider-health.service';
 import { AddBridgeDto } from './dto/add-bridge.dto';
+import { ImportLabelsDto, SetLabelDto } from './dto/set-label.dto';
+import { LabelRegistryService } from './label-registry.service';
+import type { JwtPayload } from '../auth/strategies/jwt.strategy';
+
+interface AuthRequest { user: JwtPayload }
 
 @Controller('explorer')
 @UseGuards(JwtAuthGuard)
@@ -13,6 +18,7 @@ export class ExplorerController {
   constructor(
     private readonly explorer: ExplorerService,
     private readonly bridges: BridgeRegistryService,
+    private readonly labels: LabelRegistryService,
     private readonly bridgeHub: BridgeHubService,
     private readonly health: ProviderHealthService,
   ) {}
@@ -50,6 +56,33 @@ export class ExplorerController {
   @UseGuards(AdminGuard)
   async removeBridge(@Param('address') address: string) {
     await this.bridges.remove(address);
+    return { ok: true };
+  }
+
+  // ── Address label registry ─────────────────────────────────────────────
+  // Any signed-in user can add a label (it's shared: one investigator's find
+  // helps the whole team); listing/import/removal is admin-only.
+  @Get('labels')
+  @UseGuards(AdminGuard)
+  listLabels() {
+    return this.labels.list();
+  }
+
+  @Post('labels')
+  setLabel(@Request() req: AuthRequest, @Body() dto: SetLabelDto) {
+    return this.labels.set({ address: dto.address, label: dto.label, source: dto.source, by: req.user.email });
+  }
+
+  @Post('labels/import')
+  @UseGuards(AdminGuard)
+  async importLabels(@Request() req: AuthRequest, @Body() dto: ImportLabelsDto) {
+    return { imported: await this.labels.setMany(dto.entries, req.user.email) };
+  }
+
+  @Delete('labels/:address')
+  @UseGuards(AdminGuard)
+  async removeLabel(@Param('address') address: string) {
+    await this.labels.remove(address);
     return { ok: true };
   }
 

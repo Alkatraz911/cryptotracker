@@ -441,6 +441,12 @@ button.danger:hover { background: var(--danger-hover); }
 .labelbox-found { display: flex; align-items: center; gap: 8px; }
 .labelbox-found .dk { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 .labelbox-found .link { width: auto; margin: 0; padding: 0 4px; border: 0; font-size: 14px; color: var(--text-dim); }
+.labelbox-actions { display: flex; gap: 6px; }
+.labelbox-actions button:last-child { width: auto; flex-shrink: 0; padding: 8px 12px; }
+.labeledit input { width: 100%; box-sizing: border-box; font-size: 13px; }
+.labeledit-actions { display: flex; gap: 6px; margin-top: 6px; }
+.labeledit-actions button { margin-top: 0; }
+.labeledit .muted a { color: var(--accent-2); }
 .entity-name { color: var(--success); font-size: 12px; font-weight: 600; flex: 1; word-break: break-word; }
 
 /* delete block in node modal */
@@ -790,6 +796,11 @@ button.danger:hover { background: var(--danger-hover); }
 .fb-attach { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
 .fb-attach input { margin: 0; }
 .fb-thanks { margin: 0; line-height: 1.5; }
+
+/* admin label registry */
+.admin-bulk summary { cursor: pointer; font-size: 12px; color: var(--text-muted); }
+.admin-bulk textarea { width: 100%; box-sizing: border-box; margin: 8px 0 4px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.admin-search { width: 100%; box-sizing: border-box; font-size: 12px; padding: 7px 9px; }
 
 /* admin feedback inbox */
 .fb-table .fb-row { cursor: pointer; }

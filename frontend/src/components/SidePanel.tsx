@@ -4,7 +4,7 @@ const AiChat = lazy(() => import("./AiChat"));
 import { store, type AiMsg, type NodeNetCache, type SourceStatus, type Transfer, type WalletBalance } from "../lib/store";
 import { transfersSubgraph, bridgeSubgraph, annotationsForNodeView } from "../lib/graphMerge";
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
-import { ALL_NETWORKS, networkColor, txUrl, walletNodeId, type Network } from "../lib/explorers";
+import { ALL_NETWORKS, networkColor, okxAddressUrl, txUrl, walletNodeId, type Network } from "../lib/explorers";
 import { nodeIsRisky } from "../lib/tags";
 import type { AnnotationKind, BuiltGraph, GAnnotation, GEdge, GNode } from "../lib/graph";
 
@@ -354,13 +354,15 @@ function OverviewTab({
   const [confirmDel, setConfirmDel] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelErr, setLabelErr] = useState<string | null>(null);
+  const [labelEdit, setLabelEdit] = useState(false);
+  const [labelText, setLabelText] = useState("");
   const [netEdit, setNetEdit] = useState<Network>(node.net && node.net !== "UNKNOWN" ? node.net : "ETH");
 
   const [bridgeBusy, setBridgeBusy] = useState(false);
   const [bridgeMsg, setBridgeMsg] = useState<string | null>(null);
 
 
-  useEffect(() => { setConfirmDel(false); setAnnText(""); setAnnKind("note"); }, [node.id]);
+  useEffect(() => { setConfirmDel(false); setAnnText(""); setAnnKind("note"); setLabelEdit(false); setLabelText(""); setLabelErr(null); }, [node.id]);
 
   async function fetchLabel() {
     if (!node.address || !node.net || node.net === "UNKNOWN") return;
@@ -370,6 +372,20 @@ function OverviewTab({
       if (label) onLabel(node.id, label, bridge);
       else setLabelErr("Метка не найдена для этого адреса.");
     } catch (e: any) { setLabelErr(e.message ?? "Ошибка запроса"); }
+    finally { setLabelBusy(false); }
+  }
+
+  // Save a label the investigator typed or copied from OKX into the shared
+  // registry — from then on it's applied automatically for everyone.
+  async function saveLabel() {
+    const label = labelText.trim();
+    if (!node.address || !label) return;
+    setLabelBusy(true); setLabelErr(null);
+    try {
+      await store.setLabel({ address: node.address, label, source: "okx" });
+      onLabel(node.id, label);
+      setLabelEdit(false); setLabelText("");
+    } catch (e: any) { setLabelErr(e.message ?? "Не удалось сохранить метку"); }
     finally { setLabelBusy(false); }
   }
 
@@ -450,17 +466,37 @@ function OverviewTab({
 
       {isWallet && (
         <div className="labelbox">
-          {node.entityName ? (
+          {node.entityName && !labelEdit ? (
             <div className="labelbox-found">
               <span className="dk">Владелец</span>
               <span className="entity-name">{node.entityName}</span>
               <button className="link" onClick={fetchLabel} disabled={labelBusy} title="Обновить">↺</button>
+              <button className="link" onClick={() => { setLabelText(node.entityName ?? ""); setLabelEdit(true); }} title="Исправить метку">✎</button>
             </div>
+          ) : labelEdit ? (
+            <form className="labeledit" onSubmit={(e) => { e.preventDefault(); void saveLabel(); }}>
+              <input autoFocus value={labelText} onChange={(e) => setLabelText(e.target.value)} maxLength={120}
+                placeholder="Метка (например, FixedFloat. User)" />
+              <div className="labeledit-actions">
+                <button type="submit" className="primary" disabled={!labelText.trim() || labelBusy}>{labelBusy ? "…" : "Сохранить в реестр"}</button>
+                <button type="button" onClick={() => setLabelEdit(false)}>Отмена</button>
+              </div>
+              {node.net && node.net !== "UNKNOWN" && (
+                <p className="muted">
+                  Метку можно взять в <a href={okxAddressUrl(node.net, node.address!) ?? "#"} target="_blank" rel="noreferrer">OKX Explorer ↗</a> — скопируйте её сюда,
+                  и она будет подтягиваться автоматически во всех делах.
+                </p>
+              )}
+              {labelErr && <div className="muted">{labelErr}</div>}
+            </form>
           ) : (
             <>
-              <button onClick={fetchLabel} disabled={labelBusy}>
-                {labelBusy ? "Загрузка…" : "Получить метку из эксплорера"}
-              </button>
+              <div className="labelbox-actions">
+                <button onClick={fetchLabel} disabled={labelBusy}>
+                  {labelBusy ? "Загрузка…" : "Получить метку из эксплорера"}
+                </button>
+                <button onClick={() => setLabelEdit(true)} title="Ввести метку вручную или из OKX Explorer">✎</button>
+              </div>
               {labelErr && <div className="muted">{labelErr}</div>}
             </>
           )}

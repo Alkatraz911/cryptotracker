@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
-import { store, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type User } from "../lib/store";
+import { store, type AddressLabelEntry, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type User } from "../lib/store";
 
-type Tab = "analytics" | "users" | "bridges" | "feedback";
+type Tab = "analytics" | "users" | "bridges" | "labels" | "feedback";
 
 export default function AdminPage({ user, onClose }: { user: User; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>("analytics");
@@ -16,12 +16,14 @@ export default function AdminPage({ user, onClose }: { user: User; onClose: () =
         <button className={tab === "analytics" ? "active" : ""} onClick={() => setTab("analytics")}>Аналитика</button>
         <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>Пользователи</button>
         <button className={tab === "bridges" ? "active" : ""} onClick={() => setTab("bridges")}>Мосты</button>
+        <button className={tab === "labels" ? "active" : ""} onClick={() => setTab("labels")}>Метки</button>
         <button className={tab === "feedback" ? "active" : ""} onClick={() => setTab("feedback")}>Обратная связь</button>
       </nav>
       <div className="admin-page-body">
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "users" && <UsersTab selfId={user.id} />}
         {tab === "bridges" && <BridgesTab />}
+        {tab === "labels" && <LabelsTab />}
         {tab === "feedback" && <FeedbackTab />}
       </div>
     </div>
@@ -229,6 +231,99 @@ function BridgesTab() {
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={4} className="muted">Пусто</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ── Address labels ───────────────────────────────────────────────────────────
+const SOURCE_LABEL: Record<string, string> = { manual: "вручную", okx: "OKX", tronscan: "TronScan", etherscan: "Etherscan", solscan: "Solscan" };
+
+// "address<TAB or , or ;>label" per line — what you get pasting from a sheet.
+function parseLabelLines(text: string): { address: string; label: string }[] {
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/^(\S+)[\t,;]+\s*(.+)$/);
+    return m ? { address: m[1], label: m[2].trim() } : null;
+  }).filter((x): x is { address: string; label: string } => !!x && x.label.length > 0);
+}
+
+function LabelsTab() {
+  const [rows, setRows] = useState<AddressLabelEntry[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [address, setAddress] = useState("");
+  const [label, setLabel] = useState("");
+  const [q, setQ] = useState("");
+  const [bulk, setBulk] = useState("");
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
+  const load = () => store.listLabels().then(setRows).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+
+  async function add() {
+    if (!address.trim() || !label.trim()) return;
+    setBusy(true); setErr(null);
+    try { await store.setLabel({ address: address.trim(), label: label.trim(), source: "okx" }); setAddress(""); setLabel(""); await load(); }
+    catch (e: any) { setErr(e.message ?? "Ошибка"); }
+    finally { setBusy(false); }
+  }
+  async function importBulk() {
+    const entries = parseLabelLines(bulk).map((e) => ({ ...e, source: "okx" as const }));
+    if (!entries.length) { setBulkMsg("Не распознано ни одной строки — формат: адрес, метка"); return; }
+    setBusy(true); setErr(null); setBulkMsg(null);
+    try { const { imported } = await store.importLabels(entries); setBulkMsg(`Импортировано: ${imported}`); setBulk(""); await load(); }
+    catch (e: any) { setErr(e.message ?? "Ошибка"); }
+    finally { setBusy(false); }
+  }
+  async function remove(addr: string) {
+    setErr(null);
+    try { await store.removeLabel(addr); await load(); } catch (e: any) { setErr(e.message ?? "Ошибка"); }
+  }
+
+  const shown = (rows ?? []).filter((r) => {
+    const s = q.trim().toLowerCase();
+    return !s || r.address.toLowerCase().includes(s) || r.label.toLowerCase().includes(s) || (r.createdBy ?? "").toLowerCase().includes(s);
+  });
+
+  return (
+    <div className="admin-section">
+      <p className="muted">
+        Общий реестр меток адресов (биржи, обменники, миксеры). Проверяется первым при добавлении адреса на граф — раньше эксплореров.
+        Метки OKX Explorer сюда попадают из браузера (в панели узла кнопка ✎); теги TronScan/Etherscan запоминаются сами.
+      </p>
+      <div className="admin-form">
+        <input placeholder="адрес (0x… / T… / …)" value={address} onChange={(e) => setAddress(e.target.value)} />
+        <input placeholder="метка (напр. FixedFloat. User)" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <button className="primary" onClick={add} disabled={busy || !address.trim() || !label.trim()}>Добавить</button>
+      </div>
+      <details className="admin-bulk">
+        <summary>Массовый импорт (адрес, метка — по строке)</summary>
+        <textarea rows={5} value={bulk} onChange={(e) => setBulk(e.target.value)}
+          placeholder={"TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP\tFixedFloat. User\n0x28c6c06298d514db089934071355e5743bf21d60, Binance 14"} />
+        <div className="admin-form">
+          <button className="primary" onClick={importBulk} disabled={busy || !bulk.trim()}>Импортировать</button>
+          {bulkMsg && <span className="muted">{bulkMsg}</span>}
+        </div>
+      </details>
+      {err && <div className="error">{err}</div>}
+      <input className="admin-search" placeholder="поиск по адресу / метке / автору" value={q} onChange={(e) => setQ(e.target.value)} />
+      {rows == null ? <p className="muted">Загрузка…</p> : (
+        <table className="admin-table">
+          <thead><tr><th>Метка</th><th>Адрес</th><th>Источник</th><th>Кто</th><th>Когда</th><th></th></tr></thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={r.address}>
+                <td>{r.label}</td>
+                <td className="mono admin-addr" title={r.address}>{r.address}</td>
+                <td>{SOURCE_LABEL[r.source] ?? r.source}</td>
+                <td className="admin-addr">{r.createdBy ?? "—"}</td>
+                <td className="tdate">{new Date(r.updatedAt).toLocaleDateString()}</td>
+                <td><button className="rm" title="Удалить" onClick={() => remove(r.address)}>✕</button></td>
+              </tr>
+            ))}
+            {shown.length === 0 && <tr><td colSpan={6} className="muted">Пусто</td></tr>}
           </tbody>
         </table>
       )}
