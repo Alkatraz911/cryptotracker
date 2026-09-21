@@ -17,6 +17,7 @@ import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { AddressLabel } from './explorer/entities/address-label.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
 import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
+import { AiModelCheck } from './ai/entities/ai-model-check.entity';
 import { ProviderHealthEntry } from './explorer/entities/provider-health.entity';
 import { FeedbackEntry } from './feedback/entities/feedback-entry.entity';
 import { splitDatabaseUrl } from './db-connection.util';
@@ -31,7 +32,7 @@ import { splitDatabaseUrl } from './db-connection.util';
         return {
           type: 'postgres' as const,
           url,
-          entities: [User, Project, Wallet, Transaction, BridgeAddress, AddressLabel, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry, FeedbackEntry],
+          entities: [User, Project, Wallet, Transaction, BridgeAddress, AddressLabel, UsageEvent, KnowledgeEntryEntity, AiModelCheck, ProviderHealthEntry, FeedbackEntry],
           synchronize: false,
           migrations: [__dirname + '/migrations/*.{js,ts}'],
           // Vercel sets VERCEL=1 in both its build and runtime environments. Under

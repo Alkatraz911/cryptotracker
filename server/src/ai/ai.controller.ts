@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/c
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiService, AnalyzeInput } from './ai.service';
 import { KnowledgeService } from './knowledge.service';
+import { ModelCatalogService } from './model-catalog.service';
 
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
@@ -9,12 +10,28 @@ export class AiController {
   constructor(
     private readonly ai: AiService,
     private readonly knowledge: KnowledgeService,
+    private readonly catalog: ModelCatalogService,
   ) {}
 
   // Which engine is active (provider/model) + whether it's configured.
   @Get('health')
   health() {
     return this.ai.health();
+  }
+
+  // Models the active provider offers, with their last known health.
+  @Get('models')
+  models() {
+    return this.catalog.list();
+  }
+
+  // Send one tiny request to a model to confirm it actually answers.
+  @Post('models/probe')
+  async probe(@Body() body: { model?: string }) {
+    const model = (body?.model ?? '').trim();
+    if (!model) return { model, ok: false, status: 'fail', latencyMs: null, error: 'model обязателен' };
+    if (!(await this.catalog.isAllowed(model))) return { model, ok: false, status: 'fail', latencyMs: null, error: 'модель не из списка' };
+    return this.catalog.probe(model);
   }
 
   // Analyze a posted subgraph: narrative + risk signals (RAG + heuristics).

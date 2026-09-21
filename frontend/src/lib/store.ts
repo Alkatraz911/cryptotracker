@@ -236,9 +236,16 @@ export const store = {
     nodes: AiNodeLite[];
     edges: { source: string; target: string; type?: string }[];
     question?: string;
+    model?: string;
   }): Promise<AiAnalysis> {
     return req<AiAnalysis>("/ai/analyze", { method: "POST", body: JSON.stringify(payload) });
   },
+
+  // Models the active provider offers + their last known health.
+  aiModels: () => req<AiModelCatalog>("/ai/models"),
+  // One tiny request to confirm a model actually answers.
+  aiProbeModel: (model: string) =>
+    req<AiModelProbe>("/ai/models/probe", { method: "POST", body: JSON.stringify({ model }) }),
 
   // Feed the learning loop: 👍/👎 + optional correction become RAG guidance.
   async aiFeedback(body: {
@@ -286,6 +293,13 @@ export interface AiHealth {
   provider: string; model: string; configured: boolean; knowledge: number;
 }
 export interface RiskSignal { id: string; label: string; severity: "info" | "warn" | "high" }
+export type AiModelStatus = "ok" | "fail" | "unknown";
+export interface AiModel {
+  id: string; name: string; free: boolean; context?: number | null;
+  status: AiModelStatus; checkedAt: string | null; error: string | null; latencyMs: number | null;
+}
+export interface AiModelCatalog { provider: string; current: string; allowPaid: boolean; models: AiModel[] }
+export interface AiModelProbe { model: string; ok: boolean; status: AiModelStatus; latencyMs: number | null; error: string | null }
 export interface AiAnalysis {
   narrative: string;
   signals: RiskSignal[];

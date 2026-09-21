@@ -17,6 +17,25 @@ export interface LlmRequest {
   system: string;
   prompt: string;
   maxTokens?: number;
+  // Model id chosen by the user in the picker; falls back to AI_MODEL.
+  model?: string;
+}
+
+// A model the active provider can serve. `free` is only meaningful for
+// OpenRouter (zero-priced ids); local/self-hosted models are always "free".
+export interface LlmModel {
+  id: string;
+  name: string;
+  free: boolean;
+  context?: number | null;
+}
+
+// Failure classification so callers can react: a `model_unavailable` error is
+// the one worth retrying with another model; the rest are config/network.
+export type LlmErrorKind = 'model_unavailable' | 'auth' | 'quota' | 'rate_limit' | 'network' | 'config' | 'refusal' | 'other';
+export class LlmError extends Error {
+  // `retryAfterMs`: the gateway's hint for a rate limit, when it gave one.
+  constructor(message: string, readonly kind: LlmErrorKind, readonly model?: string, readonly retryAfterMs?: number) { super(message); }
 }
 
 export interface LlmResult {
@@ -58,6 +77,11 @@ export class LlmProvider {
     }
   }
 
+  // Pick the model for a request: an explicit choice wins over AI_MODEL.
+  private modelFor(req: LlmRequest): string {
+    return (req.model || '').trim() || this.model();
+  }
+
   async complete(req: LlmRequest): Promise<LlmResult> {
     switch (this.provider()) {
       case 'claude': return this.completeClaude(req);
@@ -74,26 +98,36 @@ export class LlmProvider {
   private async completeClaude(req: LlmRequest): Promise<LlmResult> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      throw new Error('Claude не настроен: задайте ANTHROPIC_API_KEY (или переключите AI_PROVIDER=ollama).');
+      throw new LlmError('Claude не настроен: задайте ANTHROPIC_API_KEY (или переключите AI_PROVIDER=ollama).', 'config');
     }
-    const model = this.model();
+    const model = this.modelFor(req);
     let Anthropic: any;
     try {
       Anthropic = (await import('@anthropic-ai/sdk')).default;
     } catch {
-      throw new Error('Пакет @anthropic-ai/sdk не установлен на сервере (npm i @anthropic-ai/sdk).');
+      throw new LlmError('Пакет @anthropic-ai/sdk не установлен на сервере (npm i @anthropic-ai/sdk).', 'config');
     }
     const client = new Anthropic({ apiKey });
-    const res = await client.messages.create({
-      model,
-      max_tokens: req.maxTokens ?? 8000,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      system: req.system,
-      messages: [{ role: 'user', content: req.prompt }],
-    });
+    let res: any;
+    try {
+      res = await client.messages.create({
+        model,
+        max_tokens: req.maxTokens ?? 8000,
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'medium' },
+        system: req.system,
+        messages: [{ role: 'user', content: req.prompt }],
+      });
+    } catch (e: any) {
+      const status = Number(e?.status ?? 0);
+      const msg = String(e?.message ?? e);
+      if (status === 404 || /not_found_error|model.*not found/i.test(msg)) throw new LlmError(`Claude: модель «${model}» не найдена.`, 'model_unavailable', model);
+      if (status === 401) throw new LlmError('Claude: неверный API-ключ (401).', 'auth', model);
+      if (status === 429) throw new LlmError('Claude: превышен лимит запросов (429).', 'rate_limit', model);
+      throw new LlmError(`Claude: ${msg.slice(0, 200)}`, 'other', model);
+    }
     if (res.stop_reason === 'refusal') {
-      throw new Error('Модель отклонила запрос (safety). Уточните формулировку.');
+      throw new LlmError('Модель отклонила запрос (safety). Уточните формулировку.', 'refusal', model);
     }
     const text = (res.content || [])
       .filter((b: any) => b.type === 'text')
@@ -107,29 +141,36 @@ export class LlmProvider {
   // OpenRouter and most local servers expose the OpenAI chat-completions shape.
   // This is a distinct, user-chosen provider — not a shim for the Claude path
   // (Claude still goes through the Anthropic SDK above).
-  private async completeOpenAi(req: LlmRequest, which: 'openrouter' | 'openai'): Promise<LlmResult> {
-    const model = this.model();
-    if (!model) {
-      throw new Error(
-        which === 'openrouter'
-          ? 'OpenRouter: задайте AI_MODEL (напр. anthropic/claude-3.5-sonnet или meta-llama/llama-3.1-70b-instruct).'
-          : 'OpenAI-совместимый провайдер: задайте AI_MODEL.',
-      );
-    }
+  // Base URL + auth headers for the OpenAI-compatible providers.
+  private openAiEndpoint(which: 'openrouter' | 'openai'): { base: string; headers: Record<string, string> } {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     let base: string;
     let apiKey: string | undefined;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (which === 'openrouter') {
       base = (process.env.OPENROUTER_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
       apiKey = process.env.OPENROUTER_API_KEY;
-      if (!apiKey) throw new Error('OpenRouter не настроен: задайте OPENROUTER_API_KEY.');
+      if (!apiKey) throw new LlmError('OpenRouter не настроен: задайте OPENROUTER_API_KEY.', 'config');
       headers['X-Title'] = 'CryptoTracker'; // optional OpenRouter attribution
     } else {
       base = (process.env.OPENAI_BASE_URL || '').replace(/\/$/, '');
-      if (!base) throw new Error('OpenAI-совместимый провайдер: задайте OPENAI_BASE_URL (напр. http://localhost:1234/v1).');
+      if (!base) throw new LlmError('OpenAI-совместимый провайдер: задайте OPENAI_BASE_URL (напр. http://localhost:1234/v1).', 'config');
       apiKey = process.env.OPENAI_API_KEY; // optional for local servers
     }
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    return { base, headers };
+  }
+
+  private async completeOpenAi(req: LlmRequest, which: 'openrouter' | 'openai'): Promise<LlmResult> {
+    const model = this.modelFor(req);
+    if (!model) {
+      throw new LlmError(
+        which === 'openrouter'
+          ? 'OpenRouter: выберите модель в списке (или задайте AI_MODEL).'
+          : 'OpenAI-совместимый провайдер: задайте AI_MODEL.',
+        'config',
+      );
+    }
+    const { base, headers } = this.openAiEndpoint(which);
 
     let res: Response;
     try {
@@ -147,24 +188,95 @@ export class LlmProvider {
         }),
       });
     } catch (e) {
-      throw new Error(`${which} недоступен (${base}): ${(e as Error)?.message ?? ''}`.trim());
+      throw new LlmError(`${which} недоступен (${base}): ${(e as Error)?.message ?? ''}`.trim(), 'network', model);
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      if (res.status === 401) throw new Error(`${which}: неверный API-ключ (401).`);
-      if (res.status === 402) throw new Error(`${which}: недостаточно кредитов/платёж требуется (402).`);
-      if (res.status === 404) throw new Error(`${which}: модель «${model}» не найдена (404). Проверьте AI_MODEL.`);
-      throw new Error(`${which} HTTP ${res.status}: ${body.slice(0, 200)}`);
+      if (res.status === 401) throw new LlmError(`${which}: неверный API-ключ (401).`, 'auth', model);
+      if (res.status === 402) throw new LlmError(`${which}: недостаточно кредитов/платёж требуется (402).`, 'quota', model);
+      if (res.status === 429) {
+        // OpenRouter: "temporarily rate-limited upstream … retry_after_seconds".
+        let retry = Number(res.headers.get('retry-after')) * 1000 || undefined;
+        try { const j = JSON.parse(body); retry = Number(j?.error?.metadata?.retry_after_seconds) * 1000 || retry; } catch { /* not json */ }
+        throw new LlmError(`${which}: модель «${model}» перегружена (429) — попробуйте позже или выберите другую.`, 'rate_limit', model, retry);
+      }
+      // OpenRouter answers a retired/unknown id with 404 "No endpoints found";
+      // some gateways use 400 with an "invalid model" message instead. 403 is a
+      // per-model policy gate ("only available on agentic harnesses") — the id
+      // exists but this key can never use it, so it's just as dead for us.
+      if (res.status === 404 || res.status === 403 || /no endpoints|model.*(not found|does not exist|invalid)/i.test(body)) {
+        let why = '';
+        try { why = String(JSON.parse(body)?.error?.message ?? '').slice(0, 160); } catch { /* ignore */ }
+        throw new LlmError(`${which}: модель «${model}» недоступна (${res.status})${why ? `: ${why}` : ''}. Выберите другую в списке.`, 'model_unavailable', model);
+      }
+      throw new LlmError(`${which} HTTP ${res.status}: ${body.slice(0, 200)}`, 'other', model);
     }
     const json: any = await res.json();
+    // OpenRouter can return 200 with an error object (provider-side failure).
+    if (json?.error) {
+      const msg = String(json.error?.message ?? json.error);
+      if (/no endpoints|not found/i.test(msg)) throw new LlmError(`${which}: модель «${model}» недоступна: ${msg}`, 'model_unavailable', model);
+      throw new LlmError(`${which}: ${msg.slice(0, 200)}`, 'other', model);
+    }
     const text = (json?.choices?.[0]?.message?.content ?? '').trim();
     return { text: text || '(пустой ответ модели)', provider: which, model };
+  }
+
+  // ── Model catalogue ─────────────────────────────────────────────────────────
+  // What the active provider can serve right now. OpenRouter: the per-key list
+  // (falls back to the public one); Ollama: locally pulled models; generic
+  // OpenAI: GET /models; Claude: a fixed list of current model ids.
+  async listModels(): Promise<LlmModel[]> {
+    switch (this.provider()) {
+      case 'openrouter': return this.listOpenAiModels('openrouter');
+      case 'openai': return this.listOpenAiModels('openai');
+      case 'claude': return [
+        { id: 'claude-opus-5', name: 'Claude Opus 5', free: false },
+        { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', free: false },
+        { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', free: false },
+        { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', free: false },
+      ];
+      default: return this.listOllamaModels();
+    }
+  }
+
+  private async listOpenAiModels(which: 'openrouter' | 'openai'): Promise<LlmModel[]> {
+    const { base, headers } = this.openAiEndpoint(which);
+    // OpenRouter's /models/user honours the key's provider settings — closer to
+    // "what this key can actually call" than the public catalogue.
+    const url = which === 'openrouter' ? `${base}/models/user` : `${base}/models`;
+    let res = await fetch(url, { headers });
+    if (!res.ok && which === 'openrouter') res = await fetch(`${base}/models`, { headers });
+    if (!res.ok) throw new LlmError(`${which}: список моделей недоступен (HTTP ${res.status}).`, 'network');
+    const json: any = await res.json();
+    const rows: any[] = Array.isArray(json?.data) ? json.data : [];
+    return rows
+      .filter((m) => typeof m?.id === 'string')
+      .map((m) => {
+        const prompt = Number(m?.pricing?.prompt ?? 0);
+        const completion = Number(m?.pricing?.completion ?? 0);
+        const free = which === 'openai' ? true : (m.id.endsWith(':free') || (prompt === 0 && completion === 0));
+        return { id: m.id as string, name: (m.name as string) || m.id, free, context: m.context_length ?? null };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async listOllamaModels(): Promise<LlmModel[]> {
+    const base = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/$/, '');
+    let res: Response;
+    try { res = await fetch(`${base}/api/tags`); }
+    catch (e) { throw new LlmError(`Ollama недоступна (${base}): ${(e as Error)?.message ?? ''}`.trim(), 'network'); }
+    if (!res.ok) throw new LlmError(`Ollama HTTP ${res.status}`, 'network');
+    const json: any = await res.json();
+    return ((json?.models ?? []) as any[])
+      .map((m) => ({ id: String(m.name ?? m.model), name: String(m.name ?? m.model), free: true, context: null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // ── Ollama (local) ───────────────────────────────────────────────────────────
   private async completeOllama(req: LlmRequest): Promise<LlmResult> {
     const base = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/$/, '');
-    const model = this.model();
+    const model = this.modelFor(req);
     let res: Response;
     try {
       res = await fetch(`${base}/api/chat`, {
@@ -181,17 +293,18 @@ export class LlmProvider {
         }),
       });
     } catch (e) {
-      throw new Error(
+      throw new LlmError(
         `Локальная модель недоступна (${base}). Запустите Ollama и модель «${model}» ` +
           `(ollama run ${model}), либо переключите AI_PROVIDER=claude. ${(e as Error)?.message ?? ''}`.trim(),
+        'network', model,
       );
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       if (res.status === 404) {
-        throw new Error(`Ollama: модель «${model}» не загружена. Выполните: ollama pull ${model}.`);
+        throw new LlmError(`Ollama: модель «${model}» не загружена. Выполните: ollama pull ${model}.`, 'model_unavailable', model);
       }
-      throw new Error(`Ollama HTTP ${res.status}: ${body.slice(0, 200)}`);
+      throw new LlmError(`Ollama HTTP ${res.status}: ${body.slice(0, 200)}`, 'other', model);
     }
     const json: any = await res.json();
     const text = (json?.message?.content ?? '').trim();

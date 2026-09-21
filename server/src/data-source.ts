@@ -8,6 +8,7 @@ import { BridgeAddress } from './explorer/entities/bridge-address.entity';
 import { AddressLabel } from './explorer/entities/address-label.entity';
 import { UsageEvent } from './analytics/entities/usage-event.entity';
 import { KnowledgeEntryEntity } from './ai/entities/knowledge-entry.entity';
+import { AiModelCheck } from './ai/entities/ai-model-check.entity';
 import { ProviderHealthEntry } from './explorer/entities/provider-health.entity';
 import { FeedbackEntry } from './feedback/entities/feedback-entry.entity';
 import { splitDatabaseUrl } from './db-connection.util';
@@ -23,7 +24,7 @@ const { url, ssl } = splitDatabaseUrl(process.env.DATABASE_URL ?? '');
 export default new DataSource({
   type: 'postgres',
   url,
-  entities: [User, Project, Wallet, Transaction, BridgeAddress, AddressLabel, UsageEvent, KnowledgeEntryEntity, ProviderHealthEntry, FeedbackEntry],
+  entities: [User, Project, Wallet, Transaction, BridgeAddress, AddressLabel, UsageEvent, KnowledgeEntryEntity, AiModelCheck, ProviderHealthEntry, FeedbackEntry],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
   ssl,

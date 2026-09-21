@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { LlmProvider } from './llm.provider';
+import { LlmError, LlmProvider } from './llm.provider';
+import { ModelCatalogService } from './model-catalog.service';
 import { KnowledgeService, KnowledgeEntry } from './knowledge.service';
 
 // Subgraph the frontend posts for analysis (a slice of the in-memory graph).
@@ -23,6 +24,8 @@ export interface AnalyzeInput {
   nodes: AiNode[];
   edges: AiEdge[];
   question?: string;
+  // Model picked in the UI (must be one the catalogue offers); default AI_MODEL.
+  model?: string;
 }
 
 export interface RiskSignal { id: string; label: string; severity: 'info' | 'warn' | 'high' }
@@ -44,6 +47,7 @@ export class AiService {
   constructor(
     private readonly llm: LlmProvider,
     private readonly knowledge: KnowledgeService,
+    private readonly catalog: ModelCatalogService,
   ) {}
 
   async health() {
@@ -85,19 +89,70 @@ export class AiService {
       (input.question ? `# Вопрос следователя\n${input.question}\n\n` : '') +
       'Дай анализ по трём разделам выше.';
 
+    const wanted = (input.model ?? '').trim() || this.llm.model();
+    if (input.model && !(await this.catalog.isAllowed(input.model))) {
+      return {
+        narrative: '', signals,
+        used: { provider: this.llm.provider(), model: input.model, knowledge: knowledge.length, nodes: nodes.length, edges: edges.length },
+        diag: `Модель «${input.model}» недоступна для выбора — обновите список моделей.`,
+      };
+    }
+
+    // Run with the requested model; if the model itself has gone away (free
+    // OpenRouter ids get retired without notice), retry once on the freshest
+    // known-working alternative and say so in `diag` — the analyst still gets
+    // an answer instead of a 404, and the picker learns the id is dead.
+    const run = async (model: string) => {
+      const t0 = Date.now();
+      const r = await this.llm.complete({ system, prompt, model });
+      this.catalog.noteSuccess(model, Date.now() - t0);
+      return r;
+    };
+    let note: string | null = null;
     try {
-      const { text, provider, model } = await this.llm.complete({ system, prompt });
+      let result;
+      try {
+        result = await run(wanted);
+      } catch (e) {
+        // Two model-specific failures are worth switching models for: the id is
+        // gone (mark it, so the picker shows ✗) or its free pool is saturated
+        // right now (don't mark — it'll be fine in a minute). Everything else
+        // (bad key, no credits, network) would fail on any model.
+        const err = e as LlmError;
+        const gone = err?.kind === 'model_unavailable';
+        if (!gone && err?.kind !== 'rate_limit') throw e;
+        if (gone) this.catalog.noteFailure(wanted, err.message);
+        let lastErr: unknown = e;
+        for (const alt of await this.catalog.fallbackCandidates(wanted)) {
+          this.logger.warn(`model ${wanted} ${gone ? 'unavailable' : 'rate-limited'} — trying ${alt}`);
+          try {
+            result = await run(alt);
+            note = gone
+              ? `Модель «${wanted}» недоступна — ответ дала «${alt}». Выберите рабочую модель в списке.`
+              : `Модель «${wanted}» перегружена — ответ дала «${alt}».`;
+            break;
+          } catch (e2) {
+            lastErr = e2;
+            const k = (e2 as LlmError)?.kind;
+            if (k === 'model_unavailable') { this.catalog.noteFailure(alt, (e2 as Error).message); continue; }
+            if (k === 'rate_limit') continue;
+            throw e2;
+          }
+        }
+        if (!result) throw lastErr;
+      }
+      const { text, provider, model } = result;
       return {
         narrative: text,
         signals,
         used: { provider, model, knowledge: knowledge.length, nodes: nodes.length, edges: edges.length },
-        diag: null,
+        diag: note,
       };
     } catch (e) {
       return {
         narrative: '',
         signals,
-        used: { provider: this.llm.provider(), model: this.llm.model(), knowledge: knowledge.length, nodes: nodes.length, edges: edges.length },
+        used: { provider: this.llm.provider(), model: wanted, knowledge: knowledge.length, nodes: nodes.length, edges: edges.length },
         diag: (e as Error)?.message ?? String(e),
       };
     }

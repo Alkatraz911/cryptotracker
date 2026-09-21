@@ -55,7 +55,11 @@ that ends up.
     (`ollama`, `http://localhost:11434`) is unreachable from Vercel.
   - `AI_MODEL`, and whichever of `ANTHROPIC_API_KEY` /
     `OPENROUTER_API_KEY`+`OPENROUTER_URL` / `OPENAI_API_KEY`+`OPENAI_BASE_URL`
-    matches the chosen `AI_PROVIDER` (see `server/.env.example`).
+    matches the chosen `AI_PROVIDER` (see `server/.env.example`). `AI_MODEL` is
+    only the default: users pick a model in the AI chat from the provider's
+    live list, and a retired/overloaded model is swapped for a known-working
+    one automatically. `AI_ALLOW_PAID_MODELS=true` exposes paid OpenRouter
+    models in that list (they spend the key owner's credits).
   - `ETHERSCAN_API_KEY`, `TRONSCAN_API_KEY`, `SOLSCAN_API_KEY`,
     `HELIUS_API_KEY` — as already used locally.
   - `NODEREAL_API_KEY` — BSC history comes from NodeReal (BscScan blocks

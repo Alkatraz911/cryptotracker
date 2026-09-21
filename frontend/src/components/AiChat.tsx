@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { store, type AiAnalysis, type AiMsg, type AiNodeLite } from "../lib/store";
 import { neighborhoodSubgraph } from "../lib/graphMerge";
+import AiModelPicker, { loadSavedModel, markModel } from "./AiModelPicker";
 import type { BuiltGraph, GNode } from "../lib/graph";
 
 interface Props {
@@ -16,7 +17,8 @@ function renderNarrative(md: string): string {
   return esc
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/^#{1,6}\s*(.+)$/gm, "<strong>$1</strong>")
-    .replace(/^\s*[-*]\s+/gm, "• ");
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/^_(.+)_$/gm, "<em>$1</em>");
 }
 
 const SEV_CLASS: Record<string, string> = { high: "sig-high", warn: "sig-warn", info: "sig-info" };
@@ -29,6 +31,8 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [used, setUsed] = useState<AiAnalysis["used"]>(null);
+  const [model, setModel] = useState<string>(loadSavedModel());
+  const [catalogKey, setCatalogKey] = useState(0);
 
   const [fbSent, setFbSent] = useState<string | null>(null);
   const [correction, setCorrection] = useState("");
@@ -61,11 +65,19 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
         amount: n.amount, coin: n.coin, chainName: n.chainName,
       }));
       const edges = sub.edges.map((e) => ({ source: e.source, target: e.target, type: e.type }));
-      const analysis = await store.aiAnalyze({ focusId, nodes, edges, question: q || undefined });
+      const analysis = await store.aiAnalyze({ focusId, nodes, edges, question: q || undefined, model: model || undefined });
       if (seq !== runSeq.current) return;
+      // The server fell back to another model (or none was available): the
+      // chosen id is dead — mark it and refresh the list so the picker moves on.
+      if (analysis.diag && /недоступна/.test(analysis.diag)) {
+        markModel(model || analysis.used?.model || "", { status: "fail", error: analysis.diag });
+        setCatalogKey((k) => k + 1);
+      }
       setMsgs((m) => [...m, {
         role: "assistant",
-        text: analysis.narrative || analysis.diag || "Модель не вернула ответ.",
+        text: analysis.narrative
+          ? (analysis.diag ? `_${analysis.diag}_\n\n${analysis.narrative}` : analysis.narrative)
+          : (analysis.diag || "Модель не вернула ответ."),
         signals: analysis.signals,
       }]);
       setUsed(analysis.used);
@@ -122,6 +134,7 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
 
   return (
     <div className="ai-chat-panel">
+      <AiModelPicker value={model} onChange={setModel} refreshKey={catalogKey} />
       <div className="ai-chat-log" ref={logRef}>
         {focus && (
           <div className="ai-focus muted">
