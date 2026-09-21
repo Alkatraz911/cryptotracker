@@ -5,6 +5,7 @@ import { SolanaProvider } from './providers/solana.provider';
 import { OrbiterProvider, OrbiterHop } from './providers/orbiter.provider';
 import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
+import { OkLinkProvider } from './providers/oklink.provider';
 import { BridgeRegistryService } from './bridge-registry.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService, SourceStatus } from './provider-health.service';
@@ -31,6 +32,7 @@ export class ExplorerService {
     private readonly orbiter: OrbiterProvider,
     private readonly debridge: DebridgeProvider,
     private readonly price: PriceProvider,
+    private readonly oklink: OkLinkProvider,
     private readonly bridgeRegistry: BridgeRegistryService,
     private readonly bridges: BridgeHubService,
     private readonly health: ProviderHealthService,
@@ -88,11 +90,25 @@ export class ExplorerService {
     // bridge id so the client can show the cross-chain button precisely.
     const known = await this.bridgeRegistry.forAddress(address);
     if (known) return { label: known.name, bridge: known.bridge };
-    try {
-      if (network === 'TRON') return await this.tron.fetchAddressLabel(address);
-      if (network === 'SOLANA') return await this.solana.fetchAddressLabel(address);
-      return await this.evm.fetchAddressLabel(network, address);
-    } catch { return { label: null }; }
+    // OKLink's entity labels are the richest source (exchange deposit/user
+    // wallets that the chain explorers leave untagged), so they go first —
+    // except on TRON, where TronScan's tag already rides along with the account
+    // call we make for the balance, and OKLink only fills the gaps.
+    const own = async () => {
+      try {
+        if (network === 'TRON') return await this.tron.fetchAddressLabel(address);
+        if (network === 'SOLANA') return await this.solana.fetchAddressLabel(address);
+        return await this.evm.fetchAddressLabel(network, address);
+      } catch { return { label: null }; }
+    };
+    if (network === 'TRON') {
+      const r = await own();
+      if (r.label) return r;
+      return { label: await this.oklink.fetchEntityLabel(network, address) };
+    }
+    const okl = await this.oklink.fetchEntityLabel(network, address);
+    if (okl) return { label: okl };
+    return own();
   }
 
   // On-chain holdings for a wallet: the native gas token + ERC-20/TRC-20/SPL

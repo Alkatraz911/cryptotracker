@@ -188,12 +188,9 @@ export class SolanaProvider {
   // ── fetchAddressLabel ────────────────────────────────────────────────────────
 
   async fetchAddressLabel(address: string): Promise<{ label: string | null }> {
-    // OKX Web3 explorer carries CEX/entity tags for Solana accounts too — and
-    // needs no key. Solscan's own label endpoint is Pro-only (the free tier 401s),
-    // so OKX is the primary source; a paid Solscan key is a fallback.
-    const okx = await this.fetchOkxLabel(address);
-    if (okx) return { label: okx };
-
+    // Entity tags (exchanges etc.) come from OKLink upstream of this call.
+    // Solscan's own label endpoint is Pro-only (the free tier 401s), so this
+    // only adds anything with a paid key.
     const KEY = this.key();
     if (KEY) {
       try {
@@ -207,28 +204,6 @@ export class SolanaProvider {
       } catch { /* fall through */ }
     }
     return { label: null };
-  }
-
-  // Scrape OKX Web3 explorer for a Solana account's entity tag (exchange, etc.).
-  // Solana pages live under /account/ (EVM uses /address/); the tag sits in the
-  // same server-rendered hoverEntityTag / entityTag fields as the EVM pages.
-  private async fetchOkxLabel(address: string): Promise<string | null> {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 12000);
-    try {
-      const r = await fetch(`https://web3.okx.com/explorer/sol/account/${address}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        signal: ac.signal,
-      });
-      if (!r.ok) return null;
-      const html = await r.text();
-      const m1 = html.match(/"hoverEntityTag"\s*:\s*"([^"]{2,100})"/);
-      if (m1?.[1]) return m1[1];
-      const m2 = html.match(/"entityTag"\s*:\s*"([^"]{2,100})"/);
-      if (m2?.[1]) return m2[1];
-      return null;
-    } catch { return null; }
-    finally { clearTimeout(timer); }
   }
 
   // ── fetchWalletTransfers ─────────────────────────────────────────────────────

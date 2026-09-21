@@ -2,10 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { SourceStatus } from '../provider-health.service';
 
-const OKX_CHAINS: Record<string, string> = {
-  ETH: 'eth', BSC: 'bsc', POLYGON: 'polygon',
-  ARBITRUM: 'arbitrum-one', BASE: 'base',
-};
 const EVM_CHAINS: Record<string, number> = {
   ETH: 1, BSC: 56, POLYGON: 137, ARBITRUM: 42161, BASE: 8453,
 };
@@ -123,27 +119,6 @@ export class EvmProvider {
     return last;
   }
 
-  private async fetchExplorerHtmlLabel(network: string, address: string): Promise<string | null> {
-    const chain = OKX_CHAINS[network];
-    if (!chain) return null;
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 12000);
-    try {
-      const r = await fetch(`https://web3.okx.com/explorer/${chain}/address/${address}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        signal: ac.signal,
-      });
-      if (!r.ok) return null;
-      const html = await r.text();
-      const m1 = html.match(/"hoverEntityTag"\s*:\s*"([^"]{2,100})"/);
-      if (m1?.[1]) return m1[1];
-      const m2 = html.match(/"entityTag"\s*:\s*"([^"]{2,100})"/);
-      if (m2?.[1]) return m2[1];
-      return null;
-    } catch { return null; }
-    finally { clearTimeout(timer); }
-  }
-
   private async evmTxRpc(network: string, hash: string): Promise<TransferItem | null> {
     const rpc = PUBLIC_RPC[network];
     if (!rpc) return null;
@@ -222,9 +197,9 @@ export class EvmProvider {
     if (!chainid) return { label: null };
     const KEY = this.key();
     const rpc = PUBLIC_RPC[network];
-    const [htmlLabel, apiLabel] = await Promise.all([
-      this.fetchExplorerHtmlLabel(network, address).catch(() => null),
-      (async () => {
+    // Entity tags (exchanges etc.) come from OKLink upstream of this call; here
+    // it's Etherscan's label + verified contract name, then the on-chain name().
+    const apiLabel = await (async () => {
         if (!KEY) return null;
         const tj = await this.fetchJsonRetry(`${EVM_BASE}?chainid=${chainid}&module=account&action=addresslabel&address=${address}&apikey=${KEY}`);
         const tjResult = tj['result'] as Record<string, string> | null;
@@ -244,10 +219,8 @@ export class EvmProvider {
           }
         }
         return null;
-      })().catch(() => null),
-    ]);
-    const evmLabel = htmlLabel || apiLabel;
-    if (evmLabel) return { label: evmLabel };
+      })().catch(() => null);
+    if (apiLabel) return { label: apiLabel };
     if (rpc) {
       const nameHex = await this.rpcPost(rpc, 'eth_call', [{ to: address, data: '0x06fdde03' }, 'latest']).catch(() => null) as string | null;
       const name = nameHex ? this.decodeAbiString(nameHex) : null;

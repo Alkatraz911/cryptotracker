@@ -6,6 +6,7 @@ import { SolanaProvider } from './providers/solana.provider';
 import { OrbiterProvider } from './providers/orbiter.provider';
 import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
+import { OkLinkProvider } from './providers/oklink.provider';
 import { BridgeRegistryService } from './bridge-registry.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService } from './provider-health.service';
@@ -16,6 +17,7 @@ const mockSolana = { fetchTx: jest.fn(), fetchAddressLabel: jest.fn().mockResolv
 const mockOrbiter = { resolve: jest.fn(), feed: jest.fn() };
 const mockDebridge = { resolve: jest.fn(), feed: jest.fn() };
 const mockPrice = { pricesFor: jest.fn().mockResolvedValue(new Map()) };
+const mockOkLink = { fetchEntityLabel: jest.fn().mockResolvedValue(null), enabled: false };
 const mockBridgeRegistry = { forAddress: jest.fn(), list: jest.fn(), add: jest.fn(), remove: jest.fn() };
 const mockHub = { resolve: jest.fn(), resolveAny: jest.fn(), has: jest.fn(), resolvers: jest.fn() };
 const mockHealth = { record: jest.fn(), snapshot: jest.fn().mockReturnValue([]), degraded: jest.fn().mockReturnValue(false) };
@@ -26,6 +28,7 @@ describe('ExplorerService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockBridgeRegistry.forAddress.mockResolvedValue(undefined);
+    mockOkLink.fetchEntityLabel.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExplorerService,
@@ -35,6 +38,7 @@ describe('ExplorerService', () => {
         { provide: OrbiterProvider, useValue: mockOrbiter },
         { provide: DebridgeProvider, useValue: mockDebridge },
         { provide: PriceProvider, useValue: mockPrice },
+        { provide: OkLinkProvider, useValue: mockOkLink },
         { provide: BridgeRegistryService, useValue: mockBridgeRegistry },
         { provide: BridgeHubService, useValue: mockHub },
         { provide: ProviderHealthService, useValue: mockHealth },
@@ -77,10 +81,33 @@ describe('ExplorerService', () => {
 
   it('falls through to the explorer for non-bridge addresses', async () => {
     mockBridgeRegistry.forAddress.mockResolvedValue(undefined);
+    mockOkLink.fetchEntityLabel.mockResolvedValue(null);
     mockEvm.fetchAddressLabel.mockResolvedValue({ label: 'Binance' });
     const r = await service.fetchAddressLabel('ETH', '0x1111111111111111111111111111111111111111');
     expect(r.label).toBe('Binance');
     expect(mockEvm.fetchAddressLabel).toHaveBeenCalled();
+  });
+
+  it('prefers an OKLink entity label over the chain explorer on EVM', async () => {
+    mockOkLink.fetchEntityLabel.mockResolvedValue('FixedFloat. User');
+    mockEvm.fetchAddressLabel.mockResolvedValue({ label: 'SomeContract' });
+    const r = await service.fetchAddressLabel('ETH', '0x1111111111111111111111111111111111111111');
+    expect(r.label).toBe('FixedFloat. User');
+    expect(mockEvm.fetchAddressLabel).not.toHaveBeenCalled();
+  });
+
+  it('on TRON asks TronScan first and only falls back to OKLink when it has no tag', async () => {
+    mockOkLink.fetchEntityLabel.mockResolvedValue('FixedFloat. User');
+    mockTron.fetchAddressLabel.mockResolvedValue({ label: null });
+    const r = await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
+    expect(r.label).toBe('FixedFloat. User');
+    expect(mockOkLink.fetchEntityLabel).toHaveBeenCalledWith('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
+
+    mockOkLink.fetchEntityLabel.mockClear();
+    mockTron.fetchAddressLabel.mockResolvedValue({ label: 'Bybit' });
+    const r2 = await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
+    expect(r2.label).toBe('Bybit');
+    expect(mockOkLink.fetchEntityLabel).not.toHaveBeenCalled();
   });
 
   describe('bridgeResolve dispatches via the bridge hub', () => {
