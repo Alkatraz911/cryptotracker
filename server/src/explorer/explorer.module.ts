@@ -12,6 +12,7 @@ import { SolanaProvider } from './providers/solana.provider';
 import { OrbiterProvider } from './providers/orbiter.provider';
 import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
+import { ArkhamProvider } from './providers/arkham.provider';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { OrbiterAdapter } from './bridges/orbiter.adapter';
 import { DebridgeAdapter } from './bridges/debridge.adapter';
@@ -24,7 +25,7 @@ import { ProviderHealthEntry } from './entities/provider-health.entity';
   imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry])],
   providers: [
     ExplorerService, BridgeRegistryService, LabelRegistryService, ProviderHealthService,
-    EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider,
+    EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider, ArkhamProvider,
     BridgeHubService, OrbiterAdapter, DebridgeAdapter, LifiAdapter, AcrossAdapter,
   ],
   controllers: [ExplorerController],

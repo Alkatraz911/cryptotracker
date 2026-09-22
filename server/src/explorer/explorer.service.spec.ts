@@ -6,6 +6,7 @@ import { SolanaProvider } from './providers/solana.provider';
 import { OrbiterProvider } from './providers/orbiter.provider';
 import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
+import { ArkhamProvider } from './providers/arkham.provider';
 import { BridgeRegistryService } from './bridge-registry.service';
 import { LabelRegistryService } from './label-registry.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
@@ -17,6 +18,7 @@ const mockSolana = { fetchTx: jest.fn(), fetchAddressLabel: jest.fn().mockResolv
 const mockOrbiter = { resolve: jest.fn(), feed: jest.fn() };
 const mockDebridge = { resolve: jest.fn(), feed: jest.fn() };
 const mockPrice = { pricesFor: jest.fn().mockResolvedValue(new Map()) };
+const mockArkham = { fetchLabel: jest.fn().mockResolvedValue(null), enabled: false };
 const mockLabels = { forAddress: jest.fn().mockResolvedValue(undefined), remember: jest.fn(), list: jest.fn(), set: jest.fn(), setMany: jest.fn(), remove: jest.fn() };
 const mockBridgeRegistry = { forAddress: jest.fn(), list: jest.fn(), add: jest.fn(), remove: jest.fn() };
 const mockHub = { resolve: jest.fn(), resolveAny: jest.fn(), has: jest.fn(), resolvers: jest.fn() };
@@ -29,6 +31,7 @@ describe('ExplorerService', () => {
     jest.clearAllMocks();
     mockBridgeRegistry.forAddress.mockResolvedValue(undefined);
     mockLabels.forAddress.mockResolvedValue(undefined);
+    mockArkham.fetchLabel.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExplorerService,
@@ -38,6 +41,7 @@ describe('ExplorerService', () => {
         { provide: OrbiterProvider, useValue: mockOrbiter },
         { provide: DebridgeProvider, useValue: mockDebridge },
         { provide: PriceProvider, useValue: mockPrice },
+        { provide: ArkhamProvider, useValue: mockArkham },
         { provide: LabelRegistryService, useValue: mockLabels },
         { provide: BridgeRegistryService, useValue: mockBridgeRegistry },
         { provide: BridgeHubService, useValue: mockHub },
@@ -93,6 +97,28 @@ describe('ExplorerService', () => {
     const r = await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
     expect(r.label).toBe('FixedFloat. User');
     expect(mockTron.fetchAddressLabel).not.toHaveBeenCalled();
+  });
+
+  it('an explorer-sourced registry entry is upgraded through Arkham once; an Arkham/human one is final', async () => {
+    mockArkham.enabled = true;
+    mockLabels.forAddress.mockResolvedValue({ address: 'x', label: 'Bybit', source: 'tronscan' });
+    mockArkham.fetchLabel.mockResolvedValue({ label: 'Bybit: Hot Wallet', entity: 'Bybit', entityType: 'cex', detail: 'Hot Wallet', chain: 'tron' });
+    expect((await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP')).label).toBe('Bybit: Hot Wallet');
+    expect(mockLabels.remember).toHaveBeenCalledWith('TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP', 'Bybit: Hot Wallet', 'arkham');
+
+    mockArkham.fetchLabel.mockClear();
+    mockLabels.forAddress.mockResolvedValue({ address: 'x', label: 'FixedFloat. User', source: 'okx' });
+    expect((await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP')).label).toBe('FixedFloat. User');
+    expect(mockArkham.fetchLabel).not.toHaveBeenCalled();
+    mockArkham.enabled = false;
+  });
+
+  it('asks Arkham before the chain explorer and stores its attribution', async () => {
+    mockArkham.fetchLabel.mockResolvedValue({ label: 'FixedFloat: Deposit', entity: 'FixedFloat', entityType: 'dex', detail: 'Deposit', chain: 'tron' });
+    const r = await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
+    expect(r.label).toBe('FixedFloat: Deposit');
+    expect(mockTron.fetchAddressLabel).not.toHaveBeenCalled();
+    expect(mockLabels.remember).toHaveBeenCalledWith('TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP', 'FixedFloat: Deposit', 'arkham');
   });
 
   it('remembers an explorer tag in the registry for next time', async () => {

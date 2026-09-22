@@ -239,7 +239,7 @@ function BridgesTab() {
 }
 
 // ── Address labels ───────────────────────────────────────────────────────────
-const SOURCE_LABEL: Record<string, string> = { manual: "вручную", okx: "OKX", tronscan: "TronScan", etherscan: "Etherscan", solscan: "Solscan" };
+const SOURCE_LABEL: Record<string, string> = { manual: "вручную", okx: "OKX", arkham: "Arkham", tronscan: "TronScan", etherscan: "Etherscan", solscan: "Solscan" };
 
 // "address<TAB or , or ;>label" per line — what you get pasting from a sheet.
 function parseLabelLines(text: string): { address: string; label: string }[] {
@@ -291,7 +291,7 @@ function LabelsTab() {
     <div className="admin-section">
       <p className="muted">
         Общий реестр меток адресов (биржи, обменники, миксеры). Проверяется первым при добавлении адреса на граф — раньше эксплореров.
-        Метки OKX Explorer сюда попадают из браузера (в панели узла кнопка ✎); теги TronScan/Etherscan запоминаются сами.
+        Метки Arkham и теги TronScan/Etherscan запоминаются сами при добавлении адреса или загрузке транзакций; метки OKX Explorer вносятся из браузера (в панели узла кнопка ✎).
       </p>
       <div className="admin-form">
         <input placeholder="адрес (0x… / T… / …)" value={address} onChange={(e) => setAddress(e.target.value)} />

@@ -3,8 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AddressLabel, LabelSource } from './entities/address-label.entity';
 
-// Sources a person typed/copied — they win over explorer-captured tags.
-const HUMAN_SOURCES = new Set<LabelSource>(['manual', 'okx']);
+// Who to believe when sources disagree: what a person typed/copied, then
+// Arkham's entity attribution, then a chain explorer's tag. A source only
+// replaces one of lower rank — never a peer or a better one.
+const RANK: Record<string, number> = { manual: 3, okx: 3, arkham: 2 };
+export const sourceRank = (s: LabelSource): number => RANK[s] ?? 1;
 
 // EVM addresses are chain-agnostic and case-insensitive; TRON/Solana are not.
 export const labelKey = (address: string): string =>
@@ -62,14 +65,15 @@ export class LabelRegistryService {
     return rows.length;
   }
 
-  // Explorer-captured tag: fills a gap, never replaces a human entry. Fire-and-
-  // forget — a label lookup must not fail because the registry write did.
+  // Auto-captured label (Arkham / explorer tag): fills a gap or upgrades a
+  // lower-ranked entry, never touches a human one. Fire-and-forget — a label
+  // lookup must not fail because the registry write did.
   remember(address: string, label: string, source: LabelSource): void {
     const key = labelKey(address);
     if (!key || !label.trim()) return;
     void (async () => {
       const cur = (await this.map()).get(key);
-      if (cur && (HUMAN_SOURCES.has(cur.source) || cur.label === label.trim())) return;
+      if (cur && (sourceRank(cur.source) >= sourceRank(source) || cur.label === label.trim())) return;
       await this.repo.upsert({ address: key, label: label.trim(), source, createdBy: null }, ['address']);
       this.cache = null;
     })().catch((e) => this.logger.warn(`remember ${key}: ${(e as Error)?.message}`));
