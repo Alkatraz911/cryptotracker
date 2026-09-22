@@ -355,6 +355,7 @@ function OverviewTab({
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelErr, setLabelErr] = useState<string | null>(null);
   const [labelEdit, setLabelEdit] = useState(false);
+  const [credsCopied, setCredsCopied] = useState(false);
   const [labelText, setLabelText] = useState("");
   const [netEdit, setNetEdit] = useState<Network>(node.net && node.net !== "UNKNOWN" ? node.net : "ETH");
 
@@ -387,6 +388,14 @@ function OverviewTab({
       setLabelEdit(false); setLabelText("");
     } catch (e: any) { setLabelErr(e.message ?? "Не удалось сохранить метку"); }
     finally { setLabelBusy(false); }
+  }
+
+  // The userscript asks for the API origin and a token once — hand both over
+  // as "api<TAB>token" so the user can paste them straight into its prompts.
+  async function copyScriptCreds() {
+    const { api, token } = store.scriptCreds();
+    try { await navigator.clipboard.writeText(`${api}\n${token ?? ""}`); setCredsCopied(true); setTimeout(() => setCredsCopied(false), 2500); }
+    catch { window.prompt("Скопируйте (адрес API и токен):", `${api}\n${token ?? ""}`); }
   }
 
   function addAnnotation() {
@@ -485,6 +494,9 @@ function OverviewTab({
                 <p className="muted">
                   Метку можно взять в <a href={okxAddressUrl(node.net, node.address!) ?? "#"} target="_blank" rel="noreferrer">OKX Explorer ↗</a> — скопируйте её сюда,
                   и она будет подтягиваться автоматически во всех делах.
+                  {" "}Или поставьте <a href="/okx-labels.user.js" target="_blank" rel="noreferrer">скрипт для браузера</a> (Tampermonkey): он сам
+                  соберёт теги со страниц OKX.{" "}
+                  <button type="button" className="link inline" onClick={copyScriptCreds}>{credsCopied ? "скопировано ✓" : "скопировать токен для скрипта"}</button>
                 </p>
               )}
               {labelErr && <div className="muted">{labelErr}</div>}

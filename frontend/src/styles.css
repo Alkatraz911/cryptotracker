@@ -447,6 +447,7 @@ button.danger:hover { background: var(--danger-hover); }
 .labeledit-actions { display: flex; gap: 6px; margin-top: 6px; }
 .labeledit-actions button { margin-top: 0; }
 .labeledit .muted a { color: var(--accent-2); }
+.labeledit .link.inline { display: inline; width: auto; margin: 0; padding: 0; border: 0; font-size: inherit; color: var(--accent-2); background: none; }
 .entity-name { color: var(--success); font-size: 12px; font-weight: 600; flex: 1; word-break: break-word; }
 
 /* delete block in node modal */

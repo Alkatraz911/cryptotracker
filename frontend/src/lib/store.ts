@@ -79,6 +79,11 @@ export interface TxData {
 
 export const store = {
   isAuthed: () => !!token,
+  // For the OKX-labels userscript: what to paste into its settings.
+  scriptCreds: () => ({
+    token,
+    api: /^https?:\/\//.test(BASE) ? BASE.replace(/\/$/, "") : `${location.origin}${BASE.replace(/\/$/, "")}`,
+  }),
 
   // Registered by the app to drop to the login screen when a request 401s
   // mid-session (e.g. token references a user missing from the current DB).
