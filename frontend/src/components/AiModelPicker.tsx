@@ -116,7 +116,7 @@ export default function AiModelPicker({ value, onChange, refreshKey = 0 }: Props
               <optgroup key={g.status} label={g.title}>
                 {items.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {STATUS_ICON[m.status]} {m.name}{m.free && catalog.allowPaid ? " · free" : ""}{m.latencyMs != null && m.status === "ok" ? ` · ${(m.latencyMs / 1000).toFixed(1)}с` : ""}
+                    {STATUS_ICON[m.status]} {m.name}{m.free && catalog.allowPaid ? " (бесплатная)" : ""}{m.latencyMs != null && m.status === "ok" ? ` — ${(m.latencyMs / 1000).toFixed(1)} с` : ""}
                   </option>
                 ))}
               </optgroup>
@@ -131,10 +131,10 @@ export default function AiModelPicker({ value, onChange, refreshKey = 0 }: Props
         {bulk
           ? <>проверка {bulk.done}/{bulk.total}… <button type="button" className="link" onClick={() => { cancel.current = true; }}>стоп</button></>
           : <>
-              {sel?.status === "fail" && <span className="ai-model-bad">не отвечает{sel.error ? `: ${sel.error}` : ""} · </span>}
+              {sel?.status === "fail" && <span className="ai-model-bad">не отвечает{sel.error ? `: ${sel.error}` : ""}. </span>}
               {catalog && <button type="button" className="link" onClick={probeAll} disabled={busy}>проверить все</button>}
-              {catalog && <> · <button type="button" className="link" onClick={() => getCatalog(true).then(setCatalog).catch((e) => setErr(e.message))} disabled={busy}>обновить список</button></>}
-              {err && <span className="ai-model-bad"> · {err}</span>}
+              {catalog && <button type="button" className="link" onClick={() => getCatalog(true).then(setCatalog).catch((e) => setErr(e.message))} disabled={busy}>обновить список</button>}
+              {err && <span className="ai-model-bad">{err}</span>}
             </>}
       </div>
     </div>

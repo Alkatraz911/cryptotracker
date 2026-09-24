@@ -1,6 +1,52 @@
 import { useState } from "react";
 import { store, type User } from "../lib/store";
 
+// The sign-in screen opens with the thing this tool exists to produce: a traced
+// path of money leaving a victim's wallet, passing a no-KYC exchanger and a
+// bridge, and surfacing on an exchange. It draws once on load — the app's only
+// unprompted motion — and then sits still.
+function TraceFigure() {
+  return (
+    <figure className="auth-trace" aria-label="След перевода: кошелёк → обменник → мост → биржа">
+      <svg viewBox="0 0 440 300" role="img">
+        <defs>
+          <marker id="trace-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+            <path d="M0 0 L8 4 L0 8 z" fill="var(--accent)" />
+          </marker>
+        </defs>
+
+        <path className="trace-path" style={{ ["--d" as string]: "0.1s" }} markerEnd="url(#trace-arrow)" d="M70 62 L134 98" />
+        <path className="trace-path" style={{ ["--d" as string]: "0.45s" }} markerEnd="url(#trace-arrow)" d="M164 114 L230 127" />
+        <path className="trace-path" style={{ ["--d" as string]: "0.75s" }} markerEnd="url(#trace-arrow)" d="M264 146 L322 192" />
+        <path className="trace-path" style={{ ["--d" as string]: "1.05s" }} markerEnd="url(#trace-arrow)" d="M350 216 L386 243" />
+
+        <g className="trace-stop" style={{ ["--d" as string]: "0s" }}>
+          <circle cx="54" cy="52" r="16" className="ring tron" />
+          <text x="54" y="22" className="lbl">Кошелёк жертвы</text>
+        </g>
+        <g className="trace-stop" style={{ ["--d" as string]: "0.4s" }}>
+          <circle cx="149" cy="106" r="9" className="bead" />
+          <text x="143" y="134" className="amt">4 685 USDT</text>
+        </g>
+        <g className="trace-stop" style={{ ["--d" as string]: "0.7s" }}>
+          <circle cx="248" cy="132" r="16" className="ring tron flagged" />
+          <text x="248" y="167" className="lbl">FixedFloat</text>
+          <text x="248" y="183" className="sub">обменник без KYC</text>
+        </g>
+        <g className="trace-stop" style={{ ["--d" as string]: "1s" }}>
+          <circle cx="336" cy="204" r="13" className="ring bridge" />
+          <text x="316" y="210" className="lbl end">Мост в ETH</text>
+        </g>
+        <g className="trace-stop" style={{ ["--d" as string]: "1.3s" }}>
+          <circle cx="402" cy="256" r="16" className="ring bsc" />
+          <text x="398" y="290" className="lbl">Биржа</text>
+        </g>
+      </svg>
+      <figcaption>Семь часов и три сети между кражей и точкой вывода.</figcaption>
+    </figure>
+  );
+}
+
 export default function Auth({ onAuthed }: { onAuthed: (u: User) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -26,30 +72,38 @@ export default function Auth({ onAuthed }: { onAuthed: (u: User) => void }) {
 
   return (
     <div className="authwrap">
-      <form className="authcard" onSubmit={submit}>
-        <h1>CryptoTracker</h1>
-        <p className="sub">{mode === "login" ? "Вход в личный кабинет" : "Регистрация"}</p>
+      <div className="authgrid">
+        <TraceFigure />
 
-        <label>Email</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-          autoComplete="username" required />
+        <form className="authcard" onSubmit={submit}>
+          <h1>CryptoTracker</h1>
+          <p className="sub">
+            {mode === "login"
+              ? "Граф переводов, метки адресов и кроссчейн-мосты — в одном деле."
+              : "Новая учётная запись аналитика."}
+          </p>
 
-        <label>Пароль</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-          minLength={6} required />
+          <label htmlFor="auth-email">Email</label>
+          <input id="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username" required />
 
-        {err && <div className="error">{err}</div>}
+          <label htmlFor="auth-pw">Пароль</label>
+          <input id="auth-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            minLength={6} required />
 
-        <button className="primary" disabled={busy}>
-          {busy ? "…" : mode === "login" ? "Войти" : "Создать аккаунт"}
-        </button>
+          {err && <div className="error">{err}</div>}
 
-        <button type="button" className="link"
-          onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(null); }}>
-          {mode === "login" ? "Нет аккаунта? Зарегистрироваться" : "Уже есть аккаунт? Войти"}
-        </button>
-      </form>
+          <button className="primary" disabled={busy}>
+            {busy ? "Проверяем…" : mode === "login" ? "Войти" : "Создать аккаунт"}
+          </button>
+
+          <button type="button" className="link"
+            onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(null); }}>
+            {mode === "login" ? "Нет аккаунта? Зарегистрироваться" : "Уже есть аккаунт? Войти"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

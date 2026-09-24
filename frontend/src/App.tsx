@@ -692,10 +692,10 @@ export default function App() {
         {has && (
           <>
             <div className="stats">
-              {(["Wallet", "User", "Tx", "IP", "Entity"] as const).map((k) => (
-                <div key={k} className="stat">
+              {([["Wallet", "кошельки"], ["Tx", "переводы"], ["User", "аккаунты"], ["IP", "IP-адреса"], ["Entity", "сущности"]] as const).map(([k, ru]) => (
+                <div key={k} className={`stat${graph.counts[k] ? "" : " zero"}`}>
                   <span className="num">{graph.counts[k]}</span>
-                  <span className="lbl">{k}</span>
+                  <span className="lbl">{ru}</span>
                 </div>
               ))}
             </div>
@@ -728,7 +728,7 @@ export default function App() {
           </>
         )}
 
-        <div className="hint">Клик по узлу — панель справа · двойной клик — открыть в эксплорере</div>
+        <div className="hint">Клик по узлу открывает панель справа, двойной клик — эксплорер.</div>
       </aside>
       )}
       {sidebarOpen && (
@@ -782,7 +782,11 @@ export default function App() {
             </div>
           )}
           {!has ? (
-            <div className="empty">Откройте панель ☰ слева, чтобы импортировать CSV/XLSX или добавить кошелёк по ссылке</div>
+            <div className="empty board-empty">
+              <h2>Дело пустое</h2>
+              <p>Вставьте адрес кошелька, ссылку на транзакцию или загрузите выгрузку с биржи — граф соберётся сам.</p>
+              <button className="primary" onClick={() => setSidebarOpen(true)}>Добавить первый адрес</button>
+            </div>
           ) : (
             <Suspense fallback={<div className="empty">Загрузка графа…</div>}>
               <GraphView

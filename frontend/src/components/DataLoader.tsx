@@ -264,7 +264,7 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
       {parsed && mapping && (
         <>
           <p className="muted">
-            {parsed.files.length} файл(ов) · {parsed.rows.length} строк · сопоставьте колонки:
+            Загружено файлов: {parsed.files.length}, строк: {parsed.rows.length}. Сопоставьте колонки:
           </p>
           <div className="mapgrid">
             {FIELDS.map((f) => (

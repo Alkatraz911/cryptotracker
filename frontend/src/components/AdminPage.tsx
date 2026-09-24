@@ -67,7 +67,7 @@ function AnalyticsTab() {
                 <div className="usage-bar" key={m.module}>
                   <span className="ub-label">{m.module}</span>
                   <span className="ub-track"><span className="ub-fill" style={{ width: `${(m.count / maxCount) * 100}%` }} /></span>
-                  <span className="ub-count">{m.count.toLocaleString()}<i> · {m.users} польз.</i></span>
+                  <span className="ub-count">{m.count.toLocaleString()}<i>{m.users} польз.</i></span>
                 </div>
               ))}
             </div>

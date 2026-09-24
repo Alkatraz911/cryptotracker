@@ -140,7 +140,7 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
           <div className="ai-focus muted">
             Фокус: {focus.entityName ? `«${focus.entityName}» ` : ""}
             {focus.address ?? focus.label?.replace("\n", " ") ?? focus.id}
-            {focus.net && focus.net !== "UNKNOWN" ? ` · ${focus.net}` : ""}
+            {focus.net && focus.net !== "UNKNOWN" ? `, ${focus.net}` : ""}
           </div>
         )}
 
@@ -189,7 +189,7 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
 
         {used && (
           <div className="ai-engine muted">
-            движок: {used.provider} · {used.model} · знаний: {used.knowledge} · узлов: {used.nodes}
+            Отвечала {used.model}. В контексте: {used.nodes} узлов, {used.knowledge} записей базы знаний.
           </div>
         )}
       </div>

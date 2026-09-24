@@ -239,9 +239,8 @@ export default function SidePanel(props: Props) {
               value={txs ? String(recv.length) : NA} sub={txs && recvUsd > 0 ? fmtUsd(recvUsd) : undefined} />
             <Metric label="Баланс" loading={balLoading}
               value={balanceValue(curBal?.bal)}
-              sub={curBal?.bal && curBal.bal.holdings.length ? `${curBal.bal.holdings.length} актив.` : undefined}
+              sub={curBal?.bal && curBal.bal.holdings.length ? `${curBal.bal.holdings.length} актива` : undefined}
               title={balanceTitle(curBal?.bal)} />
-            <Metric label="Владелец" loading={txLoading && !node.entityName} value={node.entityName ?? NA} />
           </>
         ) : isAgg ? (
           <>
@@ -305,7 +304,7 @@ export default function SidePanel(props: Props) {
 
       {tab === "overview" && (
         <div className="sp-foot">
-          <button className="primary" onClick={() => setTab("ai")}>💬 Открыть ИИ-чат по узлу</button>
+          <button onClick={() => setTab("ai")}>Спросить ИИ об этом узле</button>
         </div>
       )}
     </aside>
@@ -451,7 +450,7 @@ function OverviewTab({
           <p className="muted">
             {resolver
               ? `Транзакция ведёт к мосту ${bridgeName}. Найти её продолжение в сети назначения.`
-              : "Проверить кроссчейн-продолжение (Orbiter · deBridge · Across · LI.FI)."}
+              : "Проверить кроссчейн-продолжение через Orbiter, deBridge, Across и LI.FI."}
           </p>
           <button className="primary" onClick={resolveBridge} disabled={bridgeBusy}>
             {bridgeBusy ? "Поиск…" : "Найти кроссчейн-продолжение"}
@@ -557,7 +556,7 @@ function OverviewTab({
             <button onClick={() => setConfirmDel(false)}>Отмена</button>
           </div>
         ) : (
-          <button className="danger" onClick={() => setConfirmDel(true)}>Удалить из графа</button>
+          <button className="ghost-danger" onClick={() => setConfirmDel(true)}>Удалить из графа</button>
         )}
       </div>
     </>
@@ -877,7 +876,7 @@ function TxTab({
                         {txHref && <a className="txlink" href={txHref} target="_blank" rel="noopener" title="Открыть в эксплорере" onClick={(e) => e.stopPropagation()}>↗</a>}
                       </td>
                       <td><span className={out ? "dir-out" : "dir-in"}>{out ? "→ out" : "← in"}</span></td>
-                      <td>
+                      <td className="tcp">
                         <span className="taddr">
                           {cpLabel ? <span className="tagchip" title={`${cpLabel}\n${cpAddr ?? ""}`}>{cpLabel}</span> : null}
                           <span className="mono">{short(cpAddr)}</span>

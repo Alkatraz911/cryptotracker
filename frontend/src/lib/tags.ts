@@ -6,14 +6,17 @@ export interface TagDef {
   color: string;
 }
 
+// Marker colours are deliberately distinct from the chain palette (TRON red,
+// BSC gold, ETH periwinkle): on the board a chain is the ring, a marker is the
+// halo around it, and the two must never be confused for one another.
 export const TAGS: TagDef[] = [
-  { id: "suspect", label: "Подозрительный", color: "#ef4444" },
-  { id: "victim", label: "Жертва", color: "#f59e0b" },
-  { id: "exchange", label: "Биржа", color: "#22c55e" },
-  { id: "mixer", label: "Миксер", color: "#a855f7" },
-  { id: "service", label: "Сервис", color: "#3b82f6" },
-  { id: "cashout", label: "Вывод/обнал", color: "#ec4899" },
-  { id: "owned", label: "Свой/контроль", color: "#14b8a6" },
+  { id: "suspect", label: "Подозрительный", color: "#F26D62" },
+  { id: "victim", label: "Жертва", color: "#7FD1E8" },
+  { id: "exchange", label: "Биржа", color: "#35B27F" },
+  { id: "mixer", label: "Миксер", color: "#9B7BE8" },
+  { id: "service", label: "Сервис", color: "#6D8FE8" },
+  { id: "cashout", label: "Вывод/обнал", color: "#E87FBF" },
+  { id: "owned", label: "Свой/контроль", color: "#2ED3C6" },
 ];
 
 export const tagById = (id?: string | null): TagDef | undefined =>

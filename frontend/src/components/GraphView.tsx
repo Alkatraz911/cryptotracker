@@ -22,11 +22,49 @@ const fmtPeriod = (from?: number, to?: number) => {
 
 const MAX_PIE = 5; // pie slices for multi-network wallet nodes
 
+// On the board the ring already carries the chain, so a single-chain wallet
+// doesn't repeat it in text — two lines of label instead of three, and far
+// fewer collisions. Multi-chain wallets keep the list: there the pie needs words.
+const stripSingleChain = (label: string, nets: number): string =>
+  nets > 1 ? label : label.replace(/\s*\[[^\]\n]+\]/g, "");
+
+// Link thickness carries the amount. Assets aren't comparable to each other
+// without prices, so each asset is scaled against itself across the case:
+// the largest USDT transfer on the board is the thickest USDT line.
+const W_MIN = 1.2, W_MAX = 5.4;
+function weightByAsset(nodes: GNode[]): Map<string, number> {
+  const byCoin = new Map<string, number[]>();
+  for (const n of nodes) {
+    if (n.kind !== "Tx" || !n.amount || n.amount <= 0) continue;
+    const k = (n.coin ?? "?").toUpperCase();
+    (byCoin.get(k) ?? byCoin.set(k, []).get(k)!).push(Math.log10(n.amount));
+  }
+  const range = new Map<string, [number, number]>();
+  for (const [k, v] of byCoin) range.set(k, [Math.min(...v), Math.max(...v)]);
+  const out = new Map<string, number>();
+  for (const n of nodes) {
+    if (n.kind !== "Tx") continue;
+    const k = (n.coin ?? "?").toUpperCase();
+    const r = range.get(k);
+    if (!n.amount || n.amount <= 0 || !r) { out.set(n.id, (W_MIN + W_MAX) / 2); continue; }
+    const [lo, hi] = r;
+    const t = hi > lo ? (Math.log10(n.amount) - lo) / (hi - lo) : 0.55;
+    out.set(n.id, W_MIN + t * (W_MAX - W_MIN));
+  }
+  return out;
+}
+
 // Cytoscape can't read CSS variables, so mirror the theme palette here. Keep
 // these in sync with the --text/--bg/etc. tokens in styles.css.
 const GRAPH_COLORS = {
-  dark: { text: "#e5e7eb", muted: "#9ca3af", line: "#4b5563", bg: "#0f172a", selected: "#38bdf8", bridge: "#a855f7", mark: "#f8fafc" },
-  light: { text: "#0f172a", muted: "#475569", line: "#94a3b8", bg: "#eef2f7", selected: "#0284c7", bridge: "#9333ea", mark: "#1e293b" },
+  dark: {
+    text: "#E9EFEA", muted: "#7E948B", line: "#3A4D46", bg: "#080D0C",
+    selected: "#2ED3C6", bridge: "#9B7BE8", mark: "#E9EFEA", money: "#E3A63C", ink: "#0D1413",
+  },
+  light: {
+    text: "#121E1A", muted: "#657870", line: "#A9B8AF", bg: "#EDF1EC",
+    selected: "#0E7F74", bridge: "#7A55C9", mark: "#121E1A", money: "#8A5A0B", ink: "#FFFFFF",
+  },
 } as const;
 
 // Register the dagre (hierarchical / layered) layout once at module load.
@@ -159,11 +197,12 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       const el: any = {
         data: {
           id: n.id,
-          label: (risky ? "⚠ " : "") + n.label + marker,
+          label: (risky ? "⚠ " : "") + (n.kind === "Wallet" ? stripSingleChain(n.label, (n.nets ?? []).length) : n.label) + marker,
           kind: n.kind,
-          color: t ? t.color : n.color,
+          color: n.color,
+          tagColor: t ? t.color : (risky ? "#F26D62" : c.muted),
           url: n.explorerUrl ?? "",
-          size: n.aggregated ? 30 : 22 + Math.min(28, n.degree * 3),
+          size: n.kind === "Tx" ? (n.aggregated ? 22 : 15) : 26 + Math.min(26, n.degree * 3),
           marked: t ? 1 : 0,
           risk: risky ? 1 : 0,
           suspect: ann?.suspect ? 1 : 0,
@@ -189,6 +228,7 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
     // adjacent Tx. If that Tx has no timestamp we leave the edge blank rather
     // than print "SENT"/"TO". Structural edges (IP/User links) keep their type.
     const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    const weights = weightByAsset(graph.nodes);
     const edges = graph.edges.map((e) => {
       const s = nodeById.get(e.source);
       const t = nodeById.get(e.target);
@@ -200,7 +240,13 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
             ? fmtPeriod(txNode.tsFrom, txNode.tsTo)
             : txNode.timestamp != null ? fmtEdgeDate(txNode.timestamp) : "")
         : e.type;
-      return { data: { id: e.id, source: e.source, target: e.target, label } };
+      return {
+        data: {
+          id: e.id, source: e.source, target: e.target, label,
+          w: txNode ? (weights.get(txNode.id) ?? 1.6) : 1.2,
+          money: txNode ? 1 : 0,
+        },
+      };
     });
     return [...nodes, ...edges];
   }, [graph]);
@@ -340,83 +386,143 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       const ele = cy.getElementById(selectedId);
       if (ele?.length) ele.select();
     }
+    // Light the money path through the selected actor (two hops each way) and
+    // push everything else back, so a busy board still reads as one flow.
+    cy.batch(() => {
+      cy.elements().removeClass("lit dim");
+      if (!selectedId || mergeMode) return;
+      const root = cy.getElementById(selectedId);
+      if (!root?.length) return;
+      let path = root.closedNeighborhood();
+      for (let hop = 0; hop < 3; hop++) path = path.union(path.closedNeighborhood());
+      cy.elements().difference(path).addClass("dim");
+      path.edges().addClass("lit");
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, mergeMode, nodeKey]);
 
   const stylesheet: any = useMemo(() => [
     {
+      // Actors are hollow discs ringed in their chain's colour: the ring says
+      // "which chain", the dark centre keeps labels legible on the board.
       selector: "node",
       style: {
         label: "data(label)",
         "background-color": "data(color)",
+        "background-opacity": 0.18,
+        "border-width": 2,
+        "border-color": "data(color)",
+        "border-opacity": 0.95,
         width: "data(size)",
         height: "data(size)",
         color: c.text,
-        "font-size": 9,
+        "font-family": "Golos Text, system-ui, sans-serif",
+        "font-size": 10,
+        "font-weight": 500,
         "text-wrap": "wrap",
+        "text-max-width": 150,
         "text-valign": "bottom",
-        "text-margin-y": 3,
-        "border-width": 0,
+        "text-margin-y": 5,
+        "text-background-color": c.bg,
+        "text-background-opacity": 0.72,
+        "text-background-padding": 2,
+        "text-background-shape": "roundrectangle",
+        "transition-property": "opacity, border-color, background-opacity",
+        "transition-duration": "140ms",
       },
     },
     { selector: 'node[kind = "User"]', style: { shape: "round-rectangle" } },
     { selector: 'node[kind = "IP"]', style: { shape: "diamond" } },
-    { selector: 'node[kind = "Tx"]', style: { shape: "ellipse", "font-size": 8 } },
-    // Aggregated Tx (folded transfers): double ring + total shown ABOVE the circle.
+    {
+      // A transaction is a moment, not an actor: a small bead carrying the
+      // amount — the only thing on the board drawn in brass.
+      selector: 'node[kind = "Tx"]',
+      style: {
+        shape: "ellipse",
+        "background-color": c.ink,
+        "background-opacity": 1,
+        "border-width": 1.5,
+        "border-color": c.money,
+        "border-opacity": 0.75,
+        color: c.money,
+        "font-family": "JetBrains Mono, ui-monospace, monospace",
+        "font-size": 9,
+        "font-weight": 500,
+        "text-margin-y": 4,
+      },
+    },
+    // Aggregated Tx (folded transfers): double ring + total shown ABOVE the bead.
     {
       selector: "node[agg = 1]",
       style: {
-        shape: "ellipse", "border-width": 2, "border-color": c.text, "border-opacity": 0.6,
-        "text-valign": "top", "text-margin-y": -3, "font-size": 9, "font-weight": "bold",
+        "border-width": 3, "border-color": c.money, "border-opacity": 0.9,
+        "text-valign": "top", "text-margin-y": -4, "font-size": 10, "font-weight": "bold",
       },
     },
-    { selector: 'node[kind = "Entity"]', style: { shape: "hexagon", "font-size": 10, "border-width": 2, "border-color": "#eab308" } },
+    { selector: 'node[kind = "Entity"]', style: { shape: "hexagon", "font-size": 11, "border-width": 2.5, "border-color": c.money, "background-opacity": 0.22 } },
     {
       // Multi-network wallet: split the node into network-coloured pie slices.
       selector: "node[multi = 1]",
       style: {
-        "pie-size": "100%",
-        "border-width": 2, "border-color": c.text, "border-opacity": 0.85,
+        "pie-size": "92%",
+        "background-opacity": 0.1,
+        "border-width": 2, "border-color": c.muted, "border-opacity": 0.8,
         "pie-1-background-color": "data(pc1)", "pie-1-background-size": "data(ps1)",
         "pie-2-background-color": "data(pc2)", "pie-2-background-size": "data(ps2)",
         "pie-3-background-color": "data(pc3)", "pie-3-background-size": "data(ps3)",
         "pie-4-background-color": "data(pc4)", "pie-4-background-size": "data(ps4)",
         "pie-5-background-color": "data(pc5)", "pie-5-background-size": "data(ps5)",
+        "pie-1-background-opacity": 0.85, "pie-2-background-opacity": 0.85,
+        "pie-3-background-opacity": 0.85, "pie-4-background-opacity": 0.85,
+        "pie-5-background-opacity": 0.85,
       },
     },
-    { selector: "node[marked = 1]", style: { "border-width": 3, "border-color": c.mark, "border-opacity": 0.9 } },
-    // Risk nodes (mixer/suspect/cashout tag or AI-flagged): red ring + ⚠ glyph.
-    { selector: "node[risk = 1]", style: { "border-width": 3, "border-color": "#ef4444", "border-opacity": 0.95 } },
-    // Investigator-flagged "suspect" (case annotation) — amber dashed ring, so it
-    // reads distinctly from an AI-derived risk node.
-    { selector: "node[suspect = 1]", style: { "border-width": 3, "border-color": "#f59e0b", "border-style": "dashed", "border-opacity": 0.95 } },
-    { selector: "node:selected", style: { "border-width": 4, "border-color": c.selected } },
+    // A marker the investigator put on the node is a halo AROUND the chain ring,
+    // never a replacement for it: the chain is what the address is, the marker is
+    // what we decided about it.
+    { selector: "node[marked = 1]", style: { "outline-width": 3, "outline-color": "data(tagColor)", "outline-opacity": 0.85, "outline-offset": 2 } },
+    // Risk (mixer/suspect/cashout tag or a sanctioned name): a fuller halo + ⚠.
+    { selector: "node[risk = 1]", style: { "outline-width": 4, "outline-color": "#F26D62", "outline-opacity": 0.95, "outline-offset": 2 } },
+    // Flagged in the case notes — same halo, dashed, so a human judgement reads
+    // differently from a derived one.
+    { selector: "node[suspect = 1]", style: { "outline-width": 3, "outline-color": "#E3A63C", "outline-style": "dashed", "outline-opacity": 0.95, "outline-offset": 3 } },
+    { selector: "node:selected", style: { "border-width": 4, "border-color": c.selected, "background-opacity": 0.34 } },
     // Multi-select (merge/delete) highlight — driven by the `sel` data flag.
     { selector: "node[sel = 1]", style: { "border-width": 4, "border-color": c.selected, "border-opacity": 1 } },
     {
       selector: "edge",
       style: {
         label: "data(label)",
-        "font-size": 7,
+        "font-family": "Golos Text, system-ui, sans-serif",
+        "font-size": 8,
         color: c.muted,
-        width: 1.4,
+        width: "data(w)",
         "line-color": c.line,
+        "line-opacity": 0.85,
         "target-arrow-color": c.line,
         "target-arrow-shape": "triangle",
+        "arrow-scale": 0.85,
         "curve-style": "bezier",
         "text-rotation": "autorotate",
         "text-background-color": c.bg,
-        "text-background-opacity": 0.7,
-        "text-background-padding": 1,
+        "text-background-opacity": 0.85,
+        "text-background-padding": 2,
+        "text-background-shape": "roundrectangle",
+        "transition-property": "opacity, line-color, target-arrow-color",
+        "transition-duration": "140ms",
       },
     },
     {
       selector: 'edge[label = "BRIDGE"]',
       style: {
         "line-color": c.bridge, "target-arrow-color": c.bridge,
-        "line-style": "dashed", width: 2,
+        "line-style": "dashed", width: 2.4, color: c.bridge,
       },
     },
+    // Following the money: selecting an actor lights its path and pushes the
+    // rest of the board back. The only motion in the app that isn't a form.
+    { selector: ".lit", style: { "line-color": c.selected, "target-arrow-color": c.selected, "line-opacity": 1, color: c.text } },
+    { selector: ".dim", style: { opacity: 0.22 } },
   ], [c]);
 
   // Re-apply the stylesheet to the live instance when the theme changes
