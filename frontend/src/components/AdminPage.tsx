@@ -1,6 +1,6 @@
 import { tr, locale } from "../lib/i18n";
 import { Fragment, useEffect, useState } from "react";
-import { store, type AddressLabelEntry, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type User } from "../lib/store";
+import { store, type AddressLabelEntry, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type OkxQueueStats, type User } from "../lib/store";
 
 type Tab = "analytics" | "users" | "bridges" | "labels" | "feedback";
 
@@ -240,7 +240,7 @@ function BridgesTab() {
 
 // ── Address labels ───────────────────────────────────────────────────────────
 const sourceLabel = (s: string): string =>
-  ({ manual: tr("вручную"), okx: "OKX", arkham: "Arkham", tronscan: "TronScan", etherscan: "Etherscan", solscan: "Solscan" } as Record<string, string>)[s] ?? s;
+  ({ manual: tr("вручную"), okx: "OKX", tronscan: "TronScan", etherscan: "Etherscan", solscan: "Solscan" } as Record<string, string>)[s] ?? s;
 
 // "address<TAB or , or ;>label" per line — what you get pasting from a sheet.
 function parseLabelLines(text: string): { address: string; label: string }[] {
@@ -260,7 +260,12 @@ function LabelsTab() {
   const [bulk, setBulk] = useState("");
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
-  const load = () => store.listLabels().then(setRows).catch((e) => setErr(e.message));
+  const [queue, setQueue] = useState<OkxQueueStats | null>(null);
+
+  const load = () => {
+    store.okxQueueStats().then(setQueue).catch(() => setQueue(null));
+    return store.listLabels().then(setRows).catch((e) => setErr(e.message));
+  };
   useEffect(() => { load(); }, []);
 
   async function add() {
@@ -292,8 +297,17 @@ function LabelsTab() {
     <div className="admin-section">
       <p className="muted">
         Общий реестр меток адресов (биржи, обменники, миксеры). Проверяется первым при добавлении адреса на граф — раньше эксплореров.
-        Метки Arkham и теги TronScan/Etherscan запоминаются сами при добавлении адреса или загрузке транзакций; метки OKX Explorer вносятся из браузера (в панели узла кнопка ✎).
+        Теги TronScan/Etherscan запоминаются сами при добавлении адреса или загрузке транзакций. Метки OKX Explorer собирает
+        {" "}<a href="/okx-labels.user.js" target="_blank" rel="noreferrer">скрипт для браузера</a> (Tampermonkey): каждый адрес, добавленный
+        любым пользователем, попадает в очередь, а скрипт в режиме «Сбор» открывает на OKX страницу его транзакции и сохраняет теги обеих сторон.
       </p>
+      {queue && (
+        <p className="muted">
+          Очередь OKX: ждут {queue.pending - queue.waitingTx}
+          {queue.waitingTx ? ` (+${queue.waitingTx} без транзакции)` : ""} · собрано {queue.done} · без тега на OKX {queue.none}
+          {queue.failed ? ` · не удалось ${queue.failed}` : ""}
+        </p>
+      )}
       <div className="admin-form">
         <input placeholder={tr("адрес (0x… / T… / …)")} value={address} onChange={(e) => setAddress(e.target.value)} />
         <input placeholder={tr("метка (напр. FixedFloat. User)")} value={label} onChange={(e) => setLabel(e.target.value)} />

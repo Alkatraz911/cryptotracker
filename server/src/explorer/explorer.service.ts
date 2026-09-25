@@ -5,9 +5,9 @@ import { SolanaProvider } from './providers/solana.provider';
 import { OrbiterProvider, OrbiterHop } from './providers/orbiter.provider';
 import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
-import { ArkhamProvider } from './providers/arkham.provider';
 import { BridgeRegistryService } from './bridge-registry.service';
-import { LabelRegistryService, sourceRank } from './label-registry.service';
+import { LabelRegistryService } from './label-registry.service';
+import { OkxLabelQueueService } from './okx-label-queue.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService, SourceStatus } from './provider-health.service';
 
@@ -33,9 +33,9 @@ export class ExplorerService {
     private readonly orbiter: OrbiterProvider,
     private readonly debridge: DebridgeProvider,
     private readonly price: PriceProvider,
-    private readonly arkham: ArkhamProvider,
     private readonly bridgeRegistry: BridgeRegistryService,
     private readonly labels: LabelRegistryService,
+    private readonly okxQueue: OkxLabelQueueService,
     private readonly bridges: BridgeHubService,
     private readonly health: ProviderHealthService,
   ) {}
@@ -96,14 +96,9 @@ export class ExplorerService {
     // copied from OKX (whose tags can't be fetched server-side), plus tags the
     // explorers gave us before. One DB lookup, no network.
     const known2 = await this.labels.forAddress(address);
-    // A registry entry that only came from a chain explorer's tag is still
-    // worth one Arkham credit to upgrade ("Bybit" → "Bybit: Hot Wallet");
-    // anything ranked Arkham-or-better is final.
-    if (known2 && (sourceRank(known2.source) >= sourceRank('arkham') || !this.arkham.enabled)) return { label: known2.label };
-    // Arkham's attribution ("FixedFloat: Deposit") is the richest network
-    // source — one credit per address, then it lives in the registry for good.
-    const ark = await this.arkham.fetchLabel(address);
-    if (ark) { this.labels.remember(address, ark.label, 'arkham'); return { label: ark.label }; }
+    // OKX has the richest tags but only a browser can read them — queue the
+    // address for the userscript (no-op when a person/OKX already labelled it).
+    this.okxQueue.enqueue(network, address);
     if (known2) return { label: known2.label };
     let r: { label: string | null } = { label: null };
     try {
@@ -332,6 +327,16 @@ export class ExplorerService {
       if (counterparties.size >= MAX_LABELS) break;
     }
     if (!counterparties.size) return;
+
+    // Give the OKX queue a transaction for every address here — the OKX tx
+    // page is where the userscript reads their tags.
+    const txOf = new Map<string, string>();
+    for (const t of transfers) {
+      for (const a of [t.from, t.to]) if (a && t.hash && !txOf.has(a.toLowerCase())) txOf.set(a.toLowerCase(), t.hash);
+    }
+    for (const a of [wallet, ...[...counterparties].slice(0, MAX_LABELS)]) {
+      this.okxQueue.enqueue(network, a, txOf.get(a.toLowerCase()) ?? null);
+    }
 
     const labels = new Map<string, string | null>();
     await Promise.all([...counterparties].slice(0, MAX_LABELS).map(async (addr) => {

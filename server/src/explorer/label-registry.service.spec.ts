@@ -55,19 +55,17 @@ describe('LabelRegistryService', () => {
     expect((await service.forAddress(TRON))?.label).toBe('FixedFloat. User');
   });
 
-  it('Arkham upgrades an explorer tag but not a human entry, and explorers never downgrade Arkham', async () => {
+  it('harvested OKX tags replace explorer/older OKX tags but never a human entry', async () => {
     service.remember(TRON, 'Bybit', 'tronscan');
     await flush();
-    service.remember(TRON, 'Bybit: Hot Wallet', 'arkham');
-    await flush();
-    expect((await service.forAddress(TRON))).toMatchObject({ label: 'Bybit: Hot Wallet', source: 'arkham' });
-    service.remember(TRON, 'Bybit', 'tronscan');
-    await flush();
-    expect((await service.forAddress(TRON))?.label).toBe('Bybit: Hot Wallet');
+    expect(await service.learn([{ address: TRON, label: 'Exchange: Bybit. User' }], 'okx', 'a@b.c')).toEqual([TRON]);
+    expect(await service.forAddress(TRON)).toMatchObject({ label: 'Exchange: Bybit. User', source: 'okx' });
     await service.set({ address: TRON, label: 'Bybit deposit (case #12)', source: 'manual' });
-    service.remember(TRON, 'Bybit: Hot Wallet', 'arkham');
-    await flush();
+    expect(await service.learn([{ address: TRON, label: 'Exchange: Bybit. User' }], 'okx', 'a@b.c')).toEqual([]);
     expect((await service.forAddress(TRON))?.label).toBe('Bybit deposit (case #12)');
+    expect(await service.forAddresses([TRON, '0x0000000000000000000000000000000000000001'])).toEqual({
+      [TRON]: { label: 'Bybit deposit (case #12)', source: 'manual' },
+    });
   });
 
   it('a human entry replaces an explorer tag', async () => {

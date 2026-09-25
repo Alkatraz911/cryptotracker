@@ -180,6 +180,29 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeKey, user]);
 
+  // OKX tags arrive later: a team member's browser (userscript) collects them
+  // from the queue the lookups above fill. Poll the shared registry so an open
+  // graph picks them up — OKX/human labels replace whatever the node showed.
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
+  useEffect(() => {
+    if (!user) return;
+    const tick = async () => {
+      const wallets = graphRef.current.nodes.filter((n) => n.kind === "Wallet" && n.address && !n.bridge);
+      if (!wallets.length) return;
+      try {
+        const found = await store.lookupLabels(wallets.map((n) => n.address!));
+        for (const n of wallets) {
+          const hit = found[n.address!];
+          if (hit && (hit.source === "okx" || hit.source === "manual") && hit.label !== n.entityName) labelNode(n.id, hit.label);
+        }
+      } catch { /* next tick */ }
+    };
+    const t = setInterval(tick, 45_000);
+    return () => clearInterval(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   const DRAFT_KEY = "ct_draft";
   const CHATS_KEY = "ct_chats";
 
@@ -821,6 +844,7 @@ export default function App() {
         <Resizer side="right" width={panelW.right} min={320} max={900}
           onResize={(w) => setPanelWidth("right", w)} onReset={() => setPanelWidth("right", null)} />
         <SidePanel
+          isAdmin={user.role === "admin"}
           node={selectedNode}
           graph={graph}
           onClose={() => setSelectedId(null)}

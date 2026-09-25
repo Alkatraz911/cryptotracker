@@ -62,8 +62,6 @@ that ends up.
     models in that list (they spend the key owner's credits).
   - `ETHERSCAN_API_KEY`, `TRONSCAN_API_KEY`, `SOLSCAN_API_KEY`,
     `HELIUS_API_KEY` — as already used locally.
-  - `ARKHAM_API_KEY` — entity labels for addresses as they land on the graph
-    (stored in the shared registry; without it only TronScan/Etherscan tags).
   - `NODEREAL_API_KEY` — BSC history comes from NodeReal (BscScan blocks
     server-side fetches). Without it the shared public endpoint is used, which
     throttles under real traffic, so set it here as well as locally.

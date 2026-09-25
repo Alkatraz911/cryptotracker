@@ -26,6 +26,8 @@ interface Props {
   onCacheNet: (net: string, patch: NodeNetCache) => void;
   chat: AiMsg[];
   onChatChange: (msgs: AiMsg[]) => void;
+  // The OKX-labels userscript reports into the registry — admins only.
+  isAdmin?: boolean;
 }
 
 type Tab = "overview" | "txs" | "links" | "ai";
@@ -330,7 +332,7 @@ type OverviewProps = Props & { isWallet: boolean; isTx: boolean };
 
 function OverviewTab({
   node, graph, onAdd, onRemove, onSaveAnnotation, onDeleteAnnotation, onLabel, onSetNet, onUnmerge,
-  isWallet, isTx,
+  isWallet, isTx, isAdmin,
 }: OverviewProps) {
   const isEntity = node.kind === "Entity" && !!node.mergedFrom;
   // The bridge id this tx leads to (by its counterparty), or undefined.
@@ -494,8 +496,10 @@ function OverviewTab({
               {node.net && node.net !== "UNKNOWN" && (
                 <p className="muted">
                   {tr("Метку можно взять в")} <a href={okxAddressUrl(node.net, node.address!) ?? "#"} target="_blank" rel="noreferrer">OKX Explorer ↗</a> {tr("— скопируйте её сюда, и она будет подтягиваться автоматически во всех делах.")}
-                  {" "}{tr("Или поставьте")} <a href="/okx-labels.user.js" target="_blank" rel="noreferrer">{tr("скрипт для браузера")}</a> {tr("(Tampermonkey): он сам соберёт теги со страниц OKX.")}{" "}
-                  <button type="button" className="link inline" onClick={copyScriptCreds}>{credsCopied ? tr("скопировано ✓") : tr("скопировать токен для скрипта")}</button>
+                  {isAdmin && <>
+                    {" "}{tr("Или поставьте")} <a href="/okx-labels.user.js" target="_blank" rel="noreferrer">{tr("скрипт для браузера")}</a> {tr("(Tampermonkey): он сам соберёт теги со страниц OKX.")}{" "}
+                    <button type="button" className="link inline" onClick={copyScriptCreds}>{credsCopied ? tr("скопировано ✓") : tr("скопировать токен для скрипта")}</button>
+                  </>}
                 </p>
               )}
               {labelErr && <div className="muted">{labelErr}</div>}

@@ -43,6 +43,7 @@ export interface User { id: string; email: string; role?: "user" | "admin" }
 export interface BridgeAddress { address: string; bridge: string; name: string; createdAt?: string }
 export type LabelSource = "manual" | "okx" | "tronscan" | "etherscan" | "solscan" | string;
 export interface AddressLabelEntry { address: string; label: string; source: LabelSource; createdBy: string | null; createdAt: string; updatedAt: string }
+export interface OkxQueueStats { pending: number; done: number; none: number; failed: number; waitingTx: number }
 export interface AdminUser { id: string; email: string; role: string; createdAt: string }
 export type FeedbackKind = "bug" | "idea";
 export type FeedbackStatus = "new" | "done";
@@ -170,6 +171,9 @@ export const store = {
   setLabel: (e: { address: string; label: string; source?: "manual" | "okx" }) =>
     req<AddressLabelEntry>("/explorer/labels", { method: "POST", body: JSON.stringify(e) }),
   listLabels: () => req<AddressLabelEntry[]>("/explorer/labels"),
+  lookupLabels: (addresses: string[]) =>
+    req<Record<string, { label: string; source: LabelSource }>>("/explorer/labels/lookup", { method: "POST", body: JSON.stringify({ addresses }) }),
+  okxQueueStats: () => req<OkxQueueStats>("/explorer/labels/okx-queue/stats"),
   importLabels: (entries: { address: string; label: string; source?: "manual" | "okx" }[]) =>
     req<{ imported: number }>("/explorer/labels/import", { method: "POST", body: JSON.stringify({ entries }) }),
   removeLabel: (address: string) =>

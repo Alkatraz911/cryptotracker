@@ -1,30 +1,149 @@
 // ==UserScript==
 // @name         CryptoTracker — метки из OKX Explorer
 // @namespace    cryptotracker
-// @version      1.0.0
-// @description  Собирает теги адресов, которые OKX Explorer показывает на странице (адрес / транзакция), и отправляет их в реестр меток CryptoTracker.
+// @version      2.1.0
+// @description  Собирает теги адресов, которые OKX Explorer показывает на страницах транзакций и адресов, и сохраняет их в общий реестр меток CryptoTracker. В режиме «Сбор» сам обходит очередь адресов без меток.
 // @match        https://web3.okx.com/*explorer/*
 // @match        https://www.oklink.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
+// @grant        GM_openInTab
+// @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
+// @grant        unsafeWindow
 // @connect      *
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
-// How it works: OKX renders entity tags ("# Exchange: FixedFloat. User") next
-// to addresses. This script reads what YOU see in your own browser session —
-// it does not call OKX's API — and posts (address, tag) pairs to
-// POST {API}/explorer/labels with your CryptoTracker token. From then on the
-// tag is applied automatically in every case for the whole team.
+// How it works. OKX renders entity tags ("# Exchange: FixedFloat. User") next
+// to addresses; its API sends them encrypted, so the script reads the text the
+// page shows in YOUR browser session and posts (address, tag) pairs to
+// CryptoTracker. Two modes:
+//  • passive — any OKX tx/address page you open: its tags go to the registry;
+//  • «Сбор» (harvest) — the tab you switch it on in takes addresses without an
+//    OKX tag from the server queue (every address any user added to a graph),
+//    opens the OKX page of a transaction of each in a background tab, reads
+//    the tags of both sides and closes it. One task every ~8 s.
 (function () {
   'use strict';
 
   const ADDR_RE = /^(0x[0-9a-fA-F]{40}|T[1-9A-HJ-NP-Za-km-z]{33}|[1-9A-HJ-NP-Za-km-z]{32,44})$/;
-  const SKIP_TAGS = /^(установить личную метку|set (a )?private (name )?tag|личная метка|private tag)/i;
+  const SKIP_TAGS = /^(установить личную метку|set (a )?private (name )?tag|личная метка|private tag|добавить метку|add tag)/i;
+  const OKX_SLUGS = { ETH: 'ethereum', BSC: 'bsc', POLYGON: 'polygon', ARBITRUM: 'arbitrum-one', BASE: 'base', TRON: 'tron', SOLANA: 'sol' };
+  const same = (a, b) => (/^0x/i.test(a) ? a.toLowerCase() === String(b).toLowerCase() : a === b);
 
-  // ── settings ──────────────────────────────────────────────────────────────
+  // ── page parsing (pure — takes a Document) ────────────────────────────────
+  const addrFromHref = (href) => {
+    const m = String(href || '').match(/\/(?:address|account)\/([0-9A-Za-z]+)/);
+    return m && ADDR_RE.test(m[1]) ? m[1] : null;
+  };
+  const cleanTag = (t) => {
+    const s = String(t || '').replace(/\s+/g, ' ').trim().replace(/^#\s*/, '').trim();
+    if (s.length < 2 || s.length > 120 || SKIP_TAGS.test(s)) return null;
+    if (ADDR_RE.test(s) || /^0x[0-9a-fA-F]{64}$/.test(s)) return null; // a bare address/hash is not a tag
+    if (/^[\d\s.,:#-]+$/.test(s)) return null;                        // "#58436066" — a block/nonce, not a tag
+    return s;
+  };
+  // Elements that name an address: links to /address/…, or a leaf whose whole
+  // text is an address (OKX sometimes draws the address as plain text).
+  function addressNodes(doc) {
+    const out = [];
+    for (const a of doc.querySelectorAll('a[href*="/address/"],a[href*="/account/"]')) {
+      const addr = addrFromHref(a.getAttribute('href'));
+      if (addr) out.push({ el: a, addr });
+    }
+    for (const el of doc.querySelectorAll('span,div,a')) {
+      if (el.children.length) continue;
+      const t = (el.textContent || '').trim();
+      if (ADDR_RE.test(t) && t.length >= 32 && !el.closest('a[href*="/address/"],a[href*="/account/"]')) out.push({ el, addr: t });
+    }
+    return out;
+  }
+  // Tag pills. OKX today: <div class="tag-77uC6 …"><div data-testid="okd-popup" …>
+  // <div class="text-ellipsis"># Exchange: FixedFloat. User</div>. The hash
+  // suffix of the class changes with every OKX deploy, so match the prefix;
+  // fall back to "short text starting with #".
+  function tagNodes(doc) {
+    const out = new Set();
+    for (const el of doc.querySelectorAll('[class^="tag-"],[class*=" tag-"]')) out.add(el.querySelector('.text-ellipsis') || el);
+    for (const el of doc.querySelectorAll('span,div')) {
+      if (el.children.length > 2) continue;
+      const t = (el.textContent || '').trim();
+      if (t.startsWith('#') && t.length <= 130 && ![...el.children].some((c) => (c.textContent || '').trim() === t)) out.add(el);
+    }
+    // keep only the innermost of nested matches
+    const list = [...out];
+    return list.filter((el) => !list.some((o) => o !== el && el.contains(o)));
+  }
+  // address → tag for every tagged address on the page. From each address we
+  // climb to the nearest ancestor that holds a tag pill; an ancestor that also
+  // holds a DIFFERENT address is a shared container (e.g. the whole sender/
+  // receiver block), so the search stops there.
+  function scanTags(doc, pageAddr) {
+    const addrs = addressNodes(doc);
+    const tags = tagNodes(doc).map((el) => ({ el, tag: cleanTag(el.textContent) })).filter((t) => t.tag);
+    const found = new Map();
+    for (const { el, addr } of addrs) {
+      if (found.has(addr)) continue;
+      let node = el;
+      for (let up = 0; up < 10 && node.parentElement && node !== doc.body; up++) {
+        node = node.parentElement;
+        if (addrs.some((o) => !same(o.addr, addr) && node.contains(o.el))) break;
+        const t = tags.find((x) => node.contains(x.el));
+        if (t) { found.set(addr, t.tag); break; }
+      }
+    }
+    // The address page itself: a pill outside tables belongs to the URL's address.
+    if (pageAddr && ![...found.keys()].some((a) => same(a, pageAddr))) {
+      const t = tags.find((x) => !x.el.closest('table,tr,[role="row"]') && ![...found.values()].includes(x.tag));
+      if (t) found.set(pageAddr, t.tag);
+    }
+    return found;
+  }
+
+  // Unit tests load this file with a DOM and call the parser directly.
+  if (typeof GM_getValue === 'undefined') {
+    if (typeof module !== 'undefined') module.exports = { scanTags, cleanTag };
+    return;
+  }
+
+  // ── which addresses OKX says are tagged (from its own API response) ──────
+  // The tag text itself is encrypted, but the response is keyed by address:
+  // that tells us "tagged, wait for the pill" vs "OKX has no tag for it".
+  const apiTagged = new Set();
+  let apiSeen = false;
+  function noteTagResponse(url, text) {
+    if (!/tag|support/i.test(url)) return;
+    try {
+      const j = JSON.parse(text);
+      const d = j && j.data;
+      if (!d || typeof d !== 'object' || Array.isArray(d)) return;
+      const keys = Object.keys(d).filter((k) => ADDR_RE.test(k));
+      if (!keys.length || !keys.every((k) => d[k] && typeof d[k] === 'object' && ('entityTag' in d[k] || 'entityTags' in d[k]))) return;
+      apiSeen = true;
+      keys.forEach((k) => apiTagged.add(k));
+    } catch { /* not JSON */ }
+  }
+  try {
+    const w = unsafeWindow;
+    const origFetch = w.fetch;
+    w.fetch = function (input, init) {
+      const p = origFetch.call(this, input, init);
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (/tag|support/i.test(url)) p.then((r) => r.clone().text().then((t) => noteTagResponse(url, t))).catch(() => {});
+      return p;
+    };
+    const origOpen = w.XMLHttpRequest.prototype.open;
+    w.XMLHttpRequest.prototype.open = function (m, url) {
+      if (/tag|support/i.test(String(url))) this.addEventListener('load', () => { try { noteTagResponse(String(url), this.responseText); } catch { /* binary */ } });
+      return origOpen.apply(this, arguments);
+    };
+  } catch { /* no page access — DOM only */ }
+
+  // Only admin accounts may write harvested tags (the server enforces it).
+  // ── settings & API ────────────────────────────────────────────────────────
   const cfg = {
     get api() { return (GM_getValue('ct_api', '') || '').replace(/\/$/, ''); },
     get token() { return GM_getValue('ct_token', ''); },
@@ -34,135 +153,196 @@
     if (!force && cfg.api && cfg.token) return true;
     const api = prompt('CryptoTracker: адрес API (например https://cryptotracker-api.vercel.app или http://localhost:8787)', cfg.api || '');
     if (api == null) return false;
-    const token = prompt('CryptoTracker: токен (в приложении: Настройки → ✎ у метки → «скопировать токен для скрипта»)', cfg.token || '');
+    const token = prompt('CryptoTracker: токен (в приложении: панель узла → ✎ → «скопировать токен для скрипта»)', cfg.token || '');
     if (token == null) return false;
     GM_setValue('ct_api', api.trim()); GM_setValue('ct_token', token.trim());
     return !!(api.trim() && token.trim());
   }
-  GM_registerMenuCommand('CryptoTracker: настроить API и токен', () => setup(true));
-  GM_registerMenuCommand('CryptoTracker: вкл/выкл автоотправку', () => { GM_setValue('ct_auto', !cfg.auto); render(); });
-
-  // ── DOM scraping ──────────────────────────────────────────────────────────
-  const addrFromHref = (href) => {
-    const m = String(href || '').match(/\/(?:address|account)\/([0-9A-Za-z]+)/);
-    return m && ADDR_RE.test(m[1]) ? m[1] : null;
-  };
-  const cleanTag = (t) => {
-    const s = String(t || '').replace(/\s+/g, ' ').trim().replace(/^#\s*/, '').trim();
-    if (s.length < 2 || s.length > 120 || SKIP_TAGS.test(s)) return null;
-    // a bare address or hash is not a tag
-    if (ADDR_RE.test(s) || /^0x[0-9a-fA-F]{64}$/.test(s)) return null;
-    return s;
-  };
-  // Tag pills are short leaf-ish elements whose text starts with "#" — or, if
-  // the "#" is drawn as an icon, elements whose class names say tag/entity.
-  function tagPillsIn(root) {
-    const out = [];
-    for (const el of root.querySelectorAll('span,div,a,button')) {
-      if (el.children.length > 3 || el.querySelector('a[href*="/address/"],a[href*="/account/"]')) continue;
-      const t = (el.textContent || '').trim();
-      if (t.length < 2 || t.length > 130) continue;
-      const byHash = t.startsWith('#');
-      const byClass = /(^|[\s_-])(entity|tag|label)([\s_-]|$)/i.test(String(el.className)) && !SKIP_TAGS.test(t) && !/^#?\s*(0x)?[0-9A-Za-z]{30,}$/.test(t);
-      if (!byHash && !byClass) continue;
-      // keep the innermost element carrying that text
-      if ([...el.children].some((c) => (c.textContent || '').trim() === t)) continue;
-      out.push(el);
-    }
-    return out;
-  }
-  function scan() {
-    const found = new Map(); // address -> tag
-    // 1) address links with a tag pill nearby (tx pages, transfer tables)
-    for (const a of document.querySelectorAll('a[href*="/address/"],a[href*="/account/"]')) {
-      const addr = addrFromHref(a.getAttribute('href'));
-      if (!addr) continue;
-      let node = a;
-      for (let up = 0; up < 3 && node.parentElement; up++) {
-        node = node.parentElement;
-        const pills = tagPillsIn(node);
-        // stop at the first ancestor that has exactly one pill and few links —
-        // a wider container would mix tags of other addresses
-        const links = node.querySelectorAll('a[href*="/address/"],a[href*="/account/"]').length;
-        if (pills.length === 1 && links <= 1) { const tag = cleanTag(pills[0].textContent); if (tag) found.set(addr, tag); break; }
-        if (pills.length > 1 || links > 1) break;
-      }
-    }
-    // 2) the address page itself: the pill in the header belongs to the URL's address
-    const pageAddr = addrFromHref(location.pathname);
-    if (pageAddr && !found.has(pageAddr)) {
-      const pills = tagPillsIn(document.body).filter((p) => !p.closest('table,tr,[role="row"]'));
-      const tag = pills.length ? cleanTag(pills[0].textContent) : null;
-      if (tag) found.set(pageAddr, tag);
-    }
-    return found;
-  }
-
-  // ── sending ───────────────────────────────────────────────────────────────
-  const sent = new Map();   // address -> tag already posted this session
-  const failed = new Map(); // address -> error
-  let queue = new Map();
-  let busy = false;
-  function post(address, label) {
+  function api(method, path, body) {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
-        method: 'POST', url: `${cfg.api}/explorer/labels`,
+        method, url: `${cfg.api}${path}`,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.token}` },
-        data: JSON.stringify({ address, label, source: 'okx' }),
-        onload: (r) => (r.status >= 200 && r.status < 300 ? resolve() : reject(new Error(`HTTP ${r.status}${r.status === 401 ? ' — токен истёк, настройте заново' : ''}`))),
+        data: body ? JSON.stringify(body) : undefined,
+        onload: (r) => {
+          if (r.status >= 200 && r.status < 300) { try { resolve(r.responseText ? JSON.parse(r.responseText) : null); } catch { resolve(null); } }
+          else reject(new Error(`HTTP ${r.status}${r.status === 401 ? ' — токен истёк, настройте заново' : r.status === 403 ? ' — нужен аккаунт администратора' : ''}`));
+        },
         onerror: () => reject(new Error('сеть')),
+        ontimeout: () => reject(new Error('таймаут')),
+        timeout: 20000,
       });
     });
   }
-  async function flush() {
-    if (busy || !queue.size) return;
-    if (!setup(false)) return;
-    busy = true;
-    try {
-      for (const [addr, tag] of [...queue]) {
-        try { await post(addr, tag); sent.set(addr, tag); failed.delete(addr); }
-        catch (e) { failed.set(addr, e.message); }
-        queue.delete(addr); render();
+  // Tags seen on a page → registry (never overwrites a label typed in the app).
+  const reportTags = (address, status, tags, error) =>
+    api('POST', '/explorer/labels/okx-queue/report', { address, status, labels: tags.map(([a, t]) => ({ address: a, label: t })), error });
+
+  // ── harvest: controller (the tab «Сбор» was switched on in) ───────────────
+  const TAB_ID = Math.random().toString(36).slice(2);
+  const JOB_TIMEOUT = 45000;
+  const harvest = { on: false, task: null, done: 0, none: 0, fails: 0, note: '', queue: null };
+
+  const isController = () => { const l = GM_getValue('ct_ctrl', null); return !!l && l.id === TAB_ID; };
+  function takeControl() {
+    const l = GM_getValue('ct_ctrl', null);
+    if (l && l.id !== TAB_ID && Date.now() - l.ts < 15000) return false; // another tab runs it
+    GM_setValue('ct_ctrl', { id: TAB_ID, ts: Date.now() });
+    return true;
+  }
+  setInterval(() => { if (harvest.on && isController()) GM_setValue('ct_ctrl', { id: TAB_ID, ts: Date.now() }); }, 5000);
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function waitResult(jobId) {
+    return new Promise((resolve) => {
+      const done = (v) => { clearTimeout(t); GM_removeValueChangeListener(id); resolve(v); };
+      const t = setTimeout(() => done(null), JOB_TIMEOUT);
+      const id = GM_addValueChangeListener('ct_result', (_k, _o, v) => { if (v && v.jobId === jobId) done(v); });
+    });
+  }
+  async function harvestLoop() {
+    while (harvest.on && isController()) {
+      let task = null;
+      try {
+        harvest.queue = await api('GET', '/explorer/labels/okx-queue/stats');
+        task = (await api('POST', '/explorer/labels/okx-queue/claim')).task;
+      } catch (e) { harvest.note = `API: ${e.message}`; render(); await sleep(30000); continue; }
+      if (!task) { harvest.task = null; harvest.note = 'очередь пуста — проверю через минуту'; render(); await sleep(60000); continue; }
+      const slug = OKX_SLUGS[task.network];
+      if (!slug) { await reportTags(task.address, 'failed', [], `сеть ${task.network} не поддерживается`).catch(() => {}); continue; }
+
+      harvest.task = task; harvest.note = ''; render();
+      const jobId = Math.random().toString(36).slice(2);
+      const url = `https://web3.okx.com/explorer/${slug}/tx/${task.txHash}`;
+      GM_setValue('ct_job', { jobId, task, ts: Date.now() });
+      const tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
+      const res = await waitResult(jobId);
+      try { tab.close(); } catch { /* already closed */ }
+
+      const status = res ? res.status : 'failed';
+      try { await reportTags(task.address, status, res ? res.tags : [], res ? res.error : 'страница OKX не ответила за 45 с'); }
+      catch (e) { harvest.note = `отчёт: ${e.message}`; }
+      if (status === 'found') harvest.done++; else if (status === 'none') harvest.none++;
+      // Several dead pages in a row = OKX wants a human check (captcha / risk).
+      harvest.fails = status === 'failed' ? harvest.fails + 1 : 0;
+      if (harvest.fails >= 3) {
+        setHarvest(false);
+        harvest.note = 'OKX перестал отдавать страницы — откройте любую вкладку OKX, пройдите проверку и включите сбор снова';
       }
-    } finally { busy = false; render(); }
+      harvest.task = null; render();
+      await sleep(6000 + Math.random() * 4000);
+    }
+  }
+  function setHarvest(on) {
+    if (on && !setup(false)) return;
+    if (on && !takeControl()) { harvest.note = 'сбор уже идёт в другой вкладке OKX'; render(); return; }
+    harvest.on = on;
+    if (!on && isController()) GM_setValue('ct_ctrl', null);
+    if (on) { harvest.fails = 0; void harvestLoop(); }
+    render();
+  }
+
+  // ── harvest: worker (a tab the controller opened) ─────────────────────────
+  function currentJob() {
+    const j = GM_getValue('ct_job', null);
+    return j && Date.now() - j.ts < JOB_TIMEOUT && location.pathname.includes(j.task.txHash) ? j : null;
+  }
+  async function runWorker(job) {
+    const target = job.task.address;
+    const started = Date.now();
+    let seenAt = 0; // when the target address first rendered
+    let result = null;
+    while (!result) {
+      await sleep(1000);
+      const tags = scanTags(document, null);
+      const hasAddr = addressNodes(document).some((x) => same(x.addr, target));
+      const mine = [...tags.keys()].find((a) => same(a, target));
+      if (hasAddr && !seenAt) seenAt = Date.now();
+      const apiSaysTagged = [...apiTagged].some((a) => same(a, target));
+      if (mine) result = { status: 'found' };
+      else if (seenAt && apiSeen && !apiSaysTagged && Date.now() - seenAt > 4000) result = { status: 'none' };
+      else if (seenAt && apiSaysTagged && Date.now() - seenAt > 12000) result = { status: 'failed', error: 'OKX отдал тег, но на странице он не найден — сменилась вёрстка?' };
+      else if (seenAt && !apiSeen && Date.now() - seenAt > 10000) result = { status: 'none' };
+      else if (Date.now() - started > JOB_TIMEOUT - 5000) result = { status: 'failed', error: seenAt ? 'теги не прогрузились' : 'страница не отрисовалась (проверка OKX?)' };
+      if (result) result.tags = [...tags];
+    }
+    GM_setValue('ct_result', { jobId: job.jobId, ...result });
+  }
+
+  // ── passive: tags on the page you're looking at ───────────────────────────
+  const sent = new Map();   // address -> tag already posted this session
+  const failed = new Map(); // address -> error
+  let current = new Map();
+  async function sendPassive(entries) {
+    if (!entries.length || !setup(false)) return;
+    for (let i = 0; i < entries.length; i += 50) {
+      const part = entries.slice(i, i + 50);
+      try { await reportTags(part[0][0], 'found', part); part.forEach(([a, t]) => { sent.set(a, t); failed.delete(a); }); }
+      catch (e) { part.forEach(([a]) => failed.set(a, e.message)); }
+    }
+    render();
   }
 
   // ── UI ────────────────────────────────────────────────────────────────────
   let box, list, open = false;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const btnCss = 'margin:6px 6px 0 0;padding:5px 10px;border-radius:6px;border:1px solid #334155;color:#fff;cursor:pointer';
   function ensureUi() {
-    if (box) return;
+    if (box || !document.body) return !!box;
     box = document.createElement('div');
-    box.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;font:12px/1.4 system-ui,sans-serif;background:#0b1020;color:#e5e7eb;border:1px solid #334155;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:420px';
-    box.innerHTML = '<div data-h style="padding:8px 12px;cursor:pointer;display:flex;gap:8px;align-items:center"><b>CT</b><span data-s></span><span style="margin-left:auto;opacity:.6">▴</span></div><div data-l style="display:none;border-top:1px solid #334155;max-height:260px;overflow:auto;padding:6px 12px"></div>';
+    box.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;font:12px/1.4 system-ui,sans-serif;background:#0b1020;color:#e5e7eb;border:1px solid #334155;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:440px';
+    box.innerHTML = '<div data-h style="padding:8px 12px;cursor:pointer;display:flex;gap:8px;align-items:center"><b>CT</b><span data-s></span><span style="margin-left:auto;opacity:.6">▴</span></div><div data-l style="display:none;border-top:1px solid #334155;max-height:300px;overflow:auto;padding:6px 12px"></div>';
     document.body.appendChild(box);
     list = box.querySelector('[data-l]');
     box.querySelector('[data-h]').addEventListener('click', () => { open = !open; list.style.display = open ? 'block' : 'none'; });
+    list.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.act === 'harvest') setHarvest(!harvest.on);
+      if (b.dataset.act === 'send') void sendPassive([...current].filter(([a, t]) => sent.get(a) !== t));
+    });
+    return true;
   }
   function render() {
-    ensureUi();
+    if (!ensureUi()) return;
     const s = box.querySelector('[data-s]');
-    s.textContent = `меток: ${current.size} · отправлено ${sent.size}${failed.size ? ` · ошибок ${failed.size}` : ''}${cfg.auto ? '' : ' · авто выкл'}`;
+    const h = harvest.on ? ` · сбор: +${harvest.done}${harvest.task ? ' …' : ''}` : '';
+    s.textContent = `меток: ${current.size} · отправлено ${sent.size}${failed.size ? ` · ошибок ${failed.size}` : ''}${h}`;
     const rows = [...current].map(([a, t]) => {
-      const st = sent.has(a) ? '✓' : failed.has(a) ? `✗ ${failed.get(a)}` : (queue.has(a) ? '…' : '');
-      return `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid #1f2937"><span style="color:#93c5fd;font-family:ui-monospace,monospace">${a.slice(0, 6)}…${a.slice(-4)}</span><span style="flex:1">${t.replace(/</g, '&lt;')}</span><span style="color:${st.startsWith('✗') ? '#f87171' : '#34d399'}">${st}</span></div>`;
+      const st = sent.get(a) === t ? '✓' : failed.has(a) ? `✗ ${failed.get(a)}` : '';
+      return `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid #1f2937"><span style="color:#93c5fd;font-family:ui-monospace,monospace">${esc(a.slice(0, 6))}…${esc(a.slice(-4))}</span><span style="flex:1">${esc(t)}</span><span style="color:${st.startsWith('✗') ? '#f87171' : '#34d399'}">${esc(st)}</span></div>`;
     }).join('');
-    const btn = cfg.auto ? '' : `<button data-send style="margin-top:6px;padding:5px 10px;border-radius:6px;border:1px solid #334155;background:#2563eb;color:#fff;cursor:pointer">Отправить в CryptoTracker (${[...current].filter(([a, t]) => sent.get(a) !== t).length})</button>`;
-    list.innerHTML = (rows || '<div style="opacity:.6">на этой странице тегов не видно</div>') + btn;
-    const b = list.querySelector('[data-send]');
-    if (b) b.addEventListener('click', () => { for (const [a, t] of current) if (sent.get(a) !== t) queue.set(a, t); flush(); });
+    const q = harvest.queue;
+    const hv = `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1f2937">
+      <div><b>Сбор по очереди</b> ${harvest.on ? '— идёт' : '— выключен'}${q ? ` · в очереди ${Math.max(0, q.pending - q.waitingTx)}` : ''}</div>
+      ${harvest.on ? `<div style="opacity:.75">собрано ${harvest.done} · без тега ${harvest.none}${harvest.task ? ` · сейчас ${esc(harvest.task.address.slice(0, 6))}…` : ''}</div>` : ''}
+      ${harvest.note ? `<div style="color:#fbbf24">${esc(harvest.note)}</div>` : ''}
+      ${harvest.on ? '<div style="opacity:.6">Оставьте эту вкладку открытой; фоновые вкладки OKX открываются и закрываются сами.</div>' : ''}
+      <button data-act="harvest" style="${btnCss};background:${harvest.on ? '#7f1d1d' : '#0f766e'}">${harvest.on ? 'Остановить сбор' : 'Включить сбор'}</button>
+    </div>`;
+    const pending = [...current].filter(([a, t]) => sent.get(a) !== t).length;
+    const sendBtn = cfg.auto || !pending ? '' : `<button data-act="send" style="${btnCss};background:#2563eb">Отправить в CryptoTracker (${pending})</button>`;
+    list.innerHTML = (rows || '<div style="opacity:.6">на этой странице тегов не видно</div>') + sendBtn + hv;
   }
 
-  // ── loop ──────────────────────────────────────────────────────────────────
-  let current = new Map();
-  let timer = null;
-  function tick() {
-    timer = null;
-    current = scan();
-    if (cfg.auto) for (const [a, t] of current) if (sent.get(a) !== t && !failed.has(a)) queue.set(a, t);
-    render();
-    flush();
+  GM_registerMenuCommand('CryptoTracker: настроить API и токен', () => setup(true));
+  GM_registerMenuCommand('CryptoTracker: вкл/выкл автоотправку', () => { GM_setValue('ct_auto', !cfg.auto); render(); });
+  GM_registerMenuCommand('CryptoTracker: вкл/выкл сбор по очереди', () => setHarvest(!harvest.on));
+
+  // ── start ─────────────────────────────────────────────────────────────────
+  function start() {
+    const job = currentJob();
+    if (job) { void runWorker(job); return; } // a harvest tab: no widget, no passive posting
+    let timer = null;
+    const tick = () => {
+      timer = null;
+      current = scanTags(document, addrFromHref(location.pathname));
+      if (cfg.auto) void sendPassive([...current].filter(([a, t]) => sent.get(a) !== t && !failed.has(a)));
+      render();
+    };
+    const schedule = () => { if (!timer) timer = setTimeout(tick, 1200); };
+    new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    schedule();
   }
-  const schedule = () => { if (!timer) timer = setTimeout(tick, 1200); };
-  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-  schedule();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

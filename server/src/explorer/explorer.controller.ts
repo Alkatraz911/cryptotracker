@@ -6,8 +6,9 @@ import { BridgeRegistryService } from './bridge-registry.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService } from './provider-health.service';
 import { AddBridgeDto } from './dto/add-bridge.dto';
-import { ImportLabelsDto, SetLabelDto } from './dto/set-label.dto';
+import { ImportLabelsDto, LookupLabelsDto, OkxReportDto, SetLabelDto } from './dto/set-label.dto';
 import { LabelRegistryService } from './label-registry.service';
+import { OkxLabelQueueService } from './okx-label-queue.service';
 import type { JwtPayload } from '../auth/strategies/jwt.strategy';
 
 interface AuthRequest { user: JwtPayload }
@@ -19,6 +20,7 @@ export class ExplorerController {
     private readonly explorer: ExplorerService,
     private readonly bridges: BridgeRegistryService,
     private readonly labels: LabelRegistryService,
+    private readonly okxQueue: OkxLabelQueueService,
     private readonly bridgeHub: BridgeHubService,
     private readonly health: ProviderHealthService,
   ) {}
@@ -69,14 +71,45 @@ export class ExplorerController {
   }
 
   @Post('labels')
-  setLabel(@Request() req: AuthRequest, @Body() dto: SetLabelDto) {
-    return this.labels.set({ address: dto.address, label: dto.label, source: dto.source, by: req.user.email });
+  async setLabel(@Request() req: AuthRequest, @Body() dto: SetLabelDto) {
+    const row = await this.labels.set({ address: dto.address, label: dto.label, source: dto.source, by: req.user.email });
+    await this.okxQueue.markDone([dto.address]);
+    return row;
+  }
+
+  // Registry labels for many addresses at once — lets an open graph pick up
+  // tags the OKX userscript collected after the nodes were added.
+  @Post('labels/lookup')
+  lookupLabels(@Body() dto: LookupLabelsDto) {
+    return this.labels.forAddresses(dto.addresses);
+  }
+
+  // ── OKX tag harvesting (userscript) — admins only: a report writes OKX
+  // labels into the shared registry in bulk, so only trusted accounts may run it.
+  @Get('labels/okx-queue/stats')
+  @UseGuards(AdminGuard)
+  okxQueueStats() {
+    return this.okxQueue.stats();
+  }
+
+  @Post('labels/okx-queue/claim')
+  @UseGuards(AdminGuard)
+  async claimOkxTask(@Request() req: AuthRequest) {
+    return { task: await this.okxQueue.claim(req.user.email) };
+  }
+
+  @Post('labels/okx-queue/report')
+  @UseGuards(AdminGuard)
+  reportOkxTask(@Request() req: AuthRequest, @Body() dto: OkxReportDto) {
+    return this.okxQueue.report(req.user.email, dto);
   }
 
   @Post('labels/import')
   @UseGuards(AdminGuard)
   async importLabels(@Request() req: AuthRequest, @Body() dto: ImportLabelsDto) {
-    return { imported: await this.labels.setMany(dto.entries, req.user.email) };
+    const imported = await this.labels.setMany(dto.entries, req.user.email);
+    await this.okxQueue.markDone(dto.entries.map((e) => e.address));
+    return { imported };
   }
 
   @Delete('labels/:address')

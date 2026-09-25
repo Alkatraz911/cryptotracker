@@ -12,7 +12,6 @@ import { SolanaProvider } from './providers/solana.provider';
 import { OrbiterProvider } from './providers/orbiter.provider';
 import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
-import { ArkhamProvider } from './providers/arkham.provider';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { OrbiterAdapter } from './bridges/orbiter.adapter';
 import { DebridgeAdapter } from './bridges/debridge.adapter';
@@ -20,12 +19,14 @@ import { LifiAdapter } from './bridges/lifi.adapter';
 import { AcrossAdapter } from './bridges/across.adapter';
 import { ProviderHealthService } from './provider-health.service';
 import { ProviderHealthEntry } from './entities/provider-health.entity';
+import { OkxLabelTask } from './entities/okx-label-task.entity';
+import { OkxLabelQueueService } from './okx-label-queue.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry])],
+  imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry, OkxLabelTask])],
   providers: [
-    ExplorerService, BridgeRegistryService, LabelRegistryService, ProviderHealthService,
-    EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider, ArkhamProvider,
+    ExplorerService, BridgeRegistryService, LabelRegistryService, OkxLabelQueueService, ProviderHealthService,
+    EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider,
     BridgeHubService, OrbiterAdapter, DebridgeAdapter, LifiAdapter, AcrossAdapter,
   ],
   controllers: [ExplorerController],

@@ -3,10 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AddressLabel, LabelSource } from './entities/address-label.entity';
 
-// Who to believe when sources disagree: what a person typed/copied, then
-// Arkham's entity attribution, then a chain explorer's tag. A source only
-// replaces one of lower rank — never a peer or a better one.
-const RANK: Record<string, number> = { manual: 3, okx: 3, arkham: 2 };
+// Who to believe when sources disagree: what a person typed or OKX showed
+// them, then a chain explorer's tag. A source only replaces one of lower
+// rank — never a peer or a better one.
+const RANK: Record<string, number> = { manual: 3, okx: 3 };
 export const sourceRank = (s: LabelSource): number => RANK[s] ?? 1;
 
 // EVM addresses are chain-agnostic and case-insensitive; TRON/Solana are not.
@@ -65,7 +65,31 @@ export class LabelRegistryService {
     return rows.length;
   }
 
-  // Auto-captured label (Arkham / explorer tag): fills a gap or upgrades a
+  // Registry entries for a batch of addresses (keys as the caller sent them).
+  async forAddresses(addresses: string[]): Promise<Record<string, { label: string; source: LabelSource }>> {
+    const m = await this.map();
+    const out: Record<string, { label: string; source: LabelSource }> = {};
+    for (const a of addresses) {
+      const r = m.get(labelKey(a));
+      if (r) out[a] = { label: r.label, source: r.source };
+    }
+    return out;
+  }
+
+  // Tags the OKX userscript harvested: newer OKX data replaces older OKX data
+  // and explorer tags, but never a label a person typed in the app.
+  async learn(entries: Array<{ address: string; label: string }>, source: LabelSource, by: string | null): Promise<string[]> {
+    const m = await this.map();
+    const rows = entries
+      .map((e) => ({ address: labelKey(e.address), label: e.label.trim(), source, createdBy: by }))
+      .filter((r) => r.address && r.label && m.get(r.address)?.source !== 'manual');
+    if (!rows.length) return [];
+    await this.repo.upsert(rows, ['address']);
+    this.cache = null;
+    return rows.map((r) => r.address);
+  }
+
+  // Auto-captured label (explorer tag): fills a gap or upgrades a
   // lower-ranked entry, never touches a human one. Fire-and-forget — a label
   // lookup must not fail because the registry write did.
   remember(address: string, label: string, source: LabelSource): void {
