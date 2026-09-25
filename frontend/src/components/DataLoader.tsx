@@ -1,3 +1,4 @@
+import { tr, locale } from "../lib/i18n";
 import { useState } from "react";
 import {
   autoDetect, detectEncoding, ENCODINGS, parseFiles,
@@ -39,7 +40,7 @@ interface PickerRow {
 
 const short = (s: string) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "?");
 const fmtAmt = (n: number) =>
-  n < 0.0001 ? n.toExponential(2) : n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  n < 0.0001 ? n.toExponential(2) : n.toLocaleString(locale(), { maximumFractionDigits: 4 });
 
 function extractPickerRows(rows: Record<string, string>[], m: Mapping): PickerRow[] {
   return rows
@@ -81,7 +82,7 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
     if (!fs.length) { setParsed(null); setMapping(null); return; }
     try {
       const p = await parseFiles(fs, enc);
-      if (!p.rows.length) throw new Error("В файлах нет строк данных");
+      if (!p.rows.length) throw new Error(tr("В файлах нет строк данных"));
       setParsed(p);
       setMapping((cur) => (redetect || !cur ? autoDetect(p.headers, p.rows[0]) : cur));
       setErr(null);
@@ -119,12 +120,12 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
   function openPicker() {
     if (!parsed || !mapping) return;
     if (!mapping.address && !mapping.txid && !mapping.txurl) {
-      setErr("Укажите хотя бы колонку адреса или транзакции.");
+      setErr(tr("Укажите хотя бы колонку адреса или транзакции."));
       return;
     }
     const rows = extractPickerRows(parsed.rows, mapping);
     if (!rows.length) {
-      setErr("Не найдено строк с данными (адресом, транзакцией или IP).");
+      setErr(tr("Не найдено строк с данными (адресом, транзакцией или IP)."));
       return;
     }
     setErr(null);
@@ -169,7 +170,7 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
             {pickerRows.length} строк · выберите для импорта
           </span>
           <button className="link" onClick={toggleAll}>
-            {selected.size === pickerRows.length ? "Снять все" : "Выбрать все"}
+            {selected.size === pickerRows.length ? tr("Снять все") : tr("Выбрать все")}
           </button>
         </div>
         <div className="transfer-picker-wrap">
@@ -207,10 +208,10 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
         </div>
         <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
           <button onClick={() => { setPickerRows(null); setErr(null); }} style={{ flex: "none", width: "auto", padding: "8px 12px" }}>
-            ← Назад
+            {tr("← Назад")}
           </button>
           <button onClick={buildAll} style={{ flex: 1 }}>
-            Загрузить все ({parsed!.rows.length})
+            {tr("Загрузить все (")}{parsed!.rows.length})
           </button>
           <button
             className="primary"
@@ -218,7 +219,7 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
             disabled={selected.size === 0}
             style={{ flex: 1 }}
           >
-            Загрузить выбранные ({selected.size})
+            {tr("Загрузить выбранные (")}{selected.size})
           </button>
         </div>
       </div>
@@ -229,7 +230,7 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
   return (
     <div className="loader">
       <label className="filebtn">
-        + Добавить CSV / XLSX (можно несколько)
+        {tr("+ Добавить CSV / XLSX (можно несколько)")}
         <input type="file" accept=".csv,.xlsx,.xls,text/csv" multiple onChange={onPick} hidden />
       </label>
 
@@ -238,17 +239,17 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
           {files.map((f, i) => (
             <li key={i}>
               <span className="fname">{f.name}</span>
-              <button className="rm" onClick={() => removeFile(i)} title="Убрать">×</button>
+              <button className="rm" onClick={() => removeFile(i)} title={tr("Убрать")}>×</button>
             </li>
           ))}
         </ul>
       )}
 
       <label className="encrow">
-        Кодировка
+        {tr("Кодировка")}
         <select value={encoding} onChange={(e) => onEncoding(e.target.value)}>
           {ENCODINGS.map((e) => (
-            <option key={e.id} value={e.id}>{e.label}</option>
+            <option key={e.id} value={e.id}>{tr(e.label)}</option>
           ))}
         </select>
       </label>
@@ -257,14 +258,14 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
 
       {parsed && looksMojibake(parsed) && (
         <div className="warn-inline">
-          Похоже на неверную кодировку (кракозябры). Попробуйте Windows-1251.
+          {tr("Похоже на неверную кодировку (кракозябры). Попробуйте Windows-1251.")}
         </div>
       )}
 
       {parsed && mapping && (
         <>
           <p className="muted">
-            Загружено файлов: {parsed.files.length}, строк: {parsed.rows.length}. Сопоставьте колонки:
+            {tr("Загружено файлов:")} {parsed.files.length}{tr(", строк:")} {parsed.rows.length}{tr(". Сопоставьте колонки:")}
           </p>
           <div className="mapgrid">
             {FIELDS.map((f) => (
@@ -280,7 +281,7 @@ export default function DataLoader({ onBuild }: { onBuild: (g: BuiltGraph) => vo
               </label>
             ))}
           </div>
-          <button className="primary" onClick={openPicker}>Предпросмотр →</button>
+          <button className="primary" onClick={openPicker}>{tr("Предпросмотр →")}</button>
         </>
       )}
     </div>

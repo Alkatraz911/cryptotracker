@@ -1,3 +1,4 @@
+import { tr, locale, useLang } from "../lib/i18n";
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import cytoscape from "cytoscape";
@@ -10,7 +11,7 @@ import { tagById, nodeIsRisky } from "../lib/tags";
 
 // Short date (dd.mm.yy) for edge labels, taken from the adjacent Tx node.
 const fmtEdgeDate = (ts: number) =>
-  new Date(ts).toLocaleDateString(undefined, { year: "2-digit", month: "2-digit", day: "2-digit" });
+  new Date(ts).toLocaleDateString(locale(), { year: "2-digit", month: "2-digit", day: "2-digit" });
 
 // Period label for an aggregated Tx edge: "dd.mm.yy–dd.mm.yy" (or a single date).
 const fmtPeriod = (from?: number, to?: number) => {
@@ -100,6 +101,7 @@ const zoomToSlider = (z: number) => Math.max(0, Math.min(100, (100 * Math.log(z 
 const sliderToZoom = (s: number) => ZMIN * Math.pow(ZMAX / ZMIN, s / 100);
 
 export default function GraphView({ graph, onSelect, selectedId, focusId, onPositionsSave, layoutKey, structureKey, mergeMode, onMergeSelection, theme, pngRef }: Props) {
+  const lang = useLang();
   const c = GRAPH_COLORS[theme];
   const cyRef = useRef<any>(null);
   // Initialize to the current layoutKey so the re-layout effect only fires on
@@ -189,7 +191,7 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       const risky = nodeIsRisky(n.tag, n.entityName);
       const ann = annFlags.get(n.id);
       const annGlyph = ann?.suspect ? "🚩" : ann?.note ? "📝" : "";
-      const marker = (annGlyph ? `\n${annGlyph} заметка` : "") + (t ? `\n⚑ ${t.label}` : "");
+      const marker = (annGlyph ? `\n${annGlyph} ${tr("заметка")}` : "") + (t ? `\n⚑ ${tr(t.label)}` : "");
       // Multi-network wallets: colour the node as pie slices, one per network,
       // so a node active on e.g. Arbitrum+BSC reads as blue+yellow at a glance.
       const nets = n.kind === "Wallet" && !t ? (n.nets ?? []) : [];
@@ -249,7 +251,8 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       };
     });
     return [...nodes, ...edges];
-  }, [graph]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, lang]);
 
   // Helper: capture all node positions and forward to parent.
   function captureAndSave() {
@@ -637,7 +640,7 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
       }}
     />
       <div className="zoom-ctl">
-        <button className="zc-btn" title="Приблизить" onClick={() => setZoomLevel((cyRef.current?.zoom() ?? 1) * 1.3)}>+</button>
+        <button className="zc-btn" title={tr("Приблизить")} onClick={() => setZoomLevel((cyRef.current?.zoom() ?? 1) * 1.3)}>+</button>
         <input
           ref={sliderRef}
           className="zc-slider"
@@ -646,10 +649,10 @@ export default function GraphView({ graph, onSelect, selectedId, focusId, onPosi
           max={100}
           step={0.5}
           defaultValue={50}
-          title="Масштаб"
+          title={tr("Масштаб")}
           onInput={(e) => setZoomLevel(sliderToZoom(Number((e.target as HTMLInputElement).value)))}
         />
-        <button className="zc-btn" title="Отдалить" onClick={() => setZoomLevel((cyRef.current?.zoom() ?? 1) / 1.3)}>−</button>
+        <button className="zc-btn" title={tr("Отдалить")} onClick={() => setZoomLevel((cyRef.current?.zoom() ?? 1) / 1.3)}>−</button>
       </div>
     </div>
   );

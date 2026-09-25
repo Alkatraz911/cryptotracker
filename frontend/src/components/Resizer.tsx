@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useRef, useState } from "react";
 
 // Drag handle between a docked side panel and the canvas.
@@ -47,7 +48,7 @@ export default function Resizer({
       className={`resizer${dragging ? " dragging" : ""}`}
       role="separator"
       aria-orientation="vertical"
-      title="Потяните, чтобы изменить ширину · двойной клик — сбросить"
+      title={tr("Потяните, чтобы изменить ширину · двойной клик — сбросить")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

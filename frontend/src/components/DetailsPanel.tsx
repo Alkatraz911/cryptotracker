@@ -1,5 +1,6 @@
 import type { GNode } from "../lib/graph";
 import { tagById } from "../lib/tags";
+import { tr } from "../lib/i18n";
 
 export default function DetailsPanel({ node }: { node: GNode | null }) {
   if (!node) return null;
@@ -9,7 +10,7 @@ export default function DetailsPanel({ node }: { node: GNode | null }) {
       <div className="dhead">
         <span className="badge" style={{ background: node.color }}>{node.kind}</span>
         {node.net && node.net !== "UNKNOWN" && <span className="net">{node.net}</span>}
-        {tag && <span className="badge" style={{ background: tag.color }}>⚑ {tag.label}</span>}
+        {tag && <span className="badge" style={{ background: tag.color }}>⚑ {tr(tag.label)}</span>}
       </div>
 
       {node.entityName && <Row k="Entity" v={node.entityName} highlight />}

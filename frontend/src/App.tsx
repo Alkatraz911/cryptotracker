@@ -1,3 +1,4 @@
+import { tr, getLang, setLang, useLang, type Lang } from "./lib/i18n";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Auth from "./components/Auth";
 import ManualAdd from "./components/ManualAdd";
@@ -64,6 +65,7 @@ function panelWidthVars(w: PanelW): React.CSSProperties {
 }
 
 export default function App() {
+  useLang(); // re-render the tree when the language changes
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -202,7 +204,7 @@ export default function App() {
   // On a 401 mid-session, drop to the login screen but keep the working graph
   // in memory (and the localStorage draft) so nothing is lost on re-login.
   useEffect(() => {
-    store.setOnUnauthorized(() => { setUser(null); flash("Войдите снова, чтобы сохранить"); });
+    store.setOnUnauthorized(() => { setUser(null); flash(tr("Войдите снова, чтобы сохранить")); });
   }, []);
 
   // tracks whether a graph is currently in memory (for in-session re-login)
@@ -224,14 +226,14 @@ export default function App() {
   }
   function exportPng() {
     const url = pngRef.current?.();
-    if (!url) { flash("Граф пуст — нечего экспортировать"); return; }
+    if (!url) { flash(tr("Граф пуст — нечего экспортировать")); return; }
     exportCasePng(name, url);
     store.logUsage("Экспорт дела (PNG)");
   }
   async function exportReport() {
     const png = pngRef.current?.() ?? null;
     const ok = openCaseReport(name, graph, png, { sources: await fetchSources(), chats });
-    if (!ok) flash("Разрешите всплывающие окна, чтобы сформировать отчёт");
+    if (!ok) flash(tr("Разрешите всплывающие окна, чтобы сформировать отчёт"));
     else store.logUsage("Экспорт дела (отчёт)");
   }
 
@@ -325,7 +327,7 @@ export default function App() {
     } catch (e: any) {
       pendingRef.current = true; // keep the work queued for the retry
       setDirty(true);
-      flash(`Не удалось сохранить: ${e?.message ?? "ошибка сети"}`);
+      flash(tr("Не удалось сохранить: {reason}", { reason: e?.message ?? tr("ошибка сети") }));
     } finally {
       savingRef.current = false;
       if (pendingRef.current) {
@@ -414,23 +416,23 @@ export default function App() {
     if (currentId) {
       store.updateProject(currentId, { name, graph: slimGraph(graph) })
         .then(() => { markSaved(); return loadProjects(); })
-        .then(() => flash("Сохранено")).catch((e) => flash(e.message));
+        .then(() => flash(tr("Сохранено"))).catch((e) => flash(e.message));
       return;
     }
     setPrompt({
-      title: "Сохранить расследование", label: "Название",
-      defaultValue: name || "Новое дело", confirmText: "Сохранить",
+      title: tr("Сохранить расследование"), label: tr("Название"),
+      defaultValue: name || tr("Новое дело"), confirmText: tr("Сохранить"),
       onSubmit: (nm) => {
         store.createProject(nm, slimGraph(graph))
           .then((meta) => { setCurrentId(meta.id); setName(meta.name); markSaved(); return loadProjects(); })
-          .then(() => flash("Сохранено")).catch((e) => flash(e.message));
+          .then(() => flash(tr("Сохранено"))).catch((e) => flash(e.message));
       },
     });
   }
 
   function rename() {
     setPrompt({
-      title: "Переименовать", label: "Название", defaultValue: name, confirmText: "Сохранить",
+      title: tr("Переименовать"), label: tr("Название"), defaultValue: name, confirmText: tr("Сохранить"),
       onSubmit: (nm) => {
         setName(nm);
         if (currentId) store.updateProject(currentId, { name: nm }).then(loadProjects);
@@ -441,8 +443,8 @@ export default function App() {
   function deleteProject() {
     if (!currentId) return;
     setConfirm({
-      title: "Удалить дело", message: `Удалить «${name}»? Действие необратимо.`,
-      confirmText: "Удалить", danger: true,
+      title: tr("Удалить дело"), message: tr("Удалить «{name}»? Действие необратимо.", { name }),
+      confirmText: tr("Удалить"), danger: true,
       onConfirm: () => {
         store.deleteProject(currentId).then(() => { newProject(); return loadProjects(); });
       },
@@ -532,16 +534,16 @@ export default function App() {
       commit(next);
       if (selectedId && !next.nodes.some((n) => n.id === selectedId)) setSelectedId(null);
     } else if (!expand) {
-      flash("Нет повторяющихся переводов между одними и теми же адресами");
+      flash(tr("Нет повторяющихся переводов между одними и теми же адресами"));
     }
   }
 
   // Force (physics) re-layout wipes the current node positions, so confirm first.
   function requestForceLayout() {
     setConfirm({
-      title: "Силовая раскладка",
-      message: "Пересобрать граф силовым алгоритмом? Текущие позиции узлов будут перезаписаны.",
-      confirmText: "Пересобрать",
+      title: tr("Силовая раскладка"),
+      message: tr("Пересобрать граф силовым алгоритмом? Текущие позиции узлов будут перезаписаны."),
+      confirmText: tr("Пересобрать"),
       onConfirm: () => setLayoutKey((k) => k + 1),
     });
   }
@@ -561,8 +563,8 @@ export default function App() {
         .catch((e) => flash(e.message));
     } else {
       setPrompt({
-        title: "Сохранить расследование", label: "Название",
-        defaultValue: name || "Новое дело", confirmText: "Сохранить",
+        title: tr("Сохранить расследование"), label: tr("Название"),
+        defaultValue: name || tr("Новое дело"), confirmText: tr("Сохранить"),
         onSubmit: (nm) => {
           store.createProject(nm, slimGraph(graph))
             .then(() => loadProjects())
@@ -577,7 +579,7 @@ export default function App() {
     const isSoloWallet =
       sub.nodes.length === 1 && sub.edges.length === 0 && sub.nodes[0].kind === "Wallet";
     if (isSoloWallet && graph.nodes.some((n) => n.id === sub.nodes[0].id)) {
-      flash("Адрес уже добавлен на холст");
+      flash(tr("Адрес уже добавлен на холст"));
       return;
     }
     applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)));
@@ -599,22 +601,22 @@ export default function App() {
 
   function confirmMerge() {
     const ids = selection;
-    if (ids.length < 2) { flash("Выберите минимум 2 узла"); return; }
+    if (ids.length < 2) { flash(tr("Выберите минимум 2 узла")); return; }
     setPrompt({
-      title: "Объединить в сущность",
-      label: "Название (необязательно)",
-      confirmText: "Объединить",
+      title: tr("Объединить в сущность"),
+      label: tr("Название (необязательно)"),
+      confirmText: tr("Объединить"),
       onSubmit: (name) => { applyGraph(mergeEntities(graph, ids, name)); exitSelect(); store.logUsage("Слияние сущностей"); },
     });
   }
 
   function confirmDelete() {
     const ids = selection;
-    if (!ids.length) { flash("Выберите узлы для удаления"); return; }
+    if (!ids.length) { flash(tr("Выберите узлы для удаления")); return; }
     setConfirm({
-      title: "Удалить узлы",
-      message: `Удалить выбранные узлы (${ids.length}) и все их связи? Можно отменить (Ctrl+Z).`,
-      confirmText: `Удалить (${ids.length})`, danger: true,
+      title: tr("Удалить узлы"),
+      message: tr("Удалить выбранные узлы ({n}) и все их связи? Можно отменить (Ctrl+Z).", { n: ids.length }),
+      confirmText: tr("Удалить ({n})", { n: ids.length }), danger: true,
       onConfirm: () => {
         applyDelete(ids);
         exitSelect();
@@ -630,9 +632,14 @@ export default function App() {
 
   // Focus a node on the canvas and open its panel (from lists / search / contacts).
   function focus(id: string) {
-    if (!graph.nodes.some((n) => n.id === id)) { flash("Узел не найден на графе"); return; }
+    if (!graph.nodes.some((n) => n.id === id)) { flash(tr("Узел не найден на графе")); return; }
     setFocusId(id);
     setSelectedId(id);
+  }
+
+  function toggleLang() {
+    const next: Lang = getLang() === "ru" ? "en" : "ru";
+    setLang(next);
   }
 
   function toggleTheme() {
@@ -647,9 +654,9 @@ export default function App() {
     store.logout(); setUser(null); newProject(); setProjects([]);
   }
 
-  if (!ready) return <div className="boot">Загрузка…</div>;
+  if (!ready) return <div className="boot">{tr("Загрузка…")}</div>;
   if (!user) return <Auth onAuthed={afterAuth} />;
-  if (adminOpen && user.role === "admin") return <Suspense fallback={<div className="empty">Загрузка…</div>}><AdminPage user={user} onClose={() => setAdminOpen(false)} /></Suspense>;
+  if (adminOpen && user.role === "admin") return <Suspense fallback={<div className="empty">{tr("Загрузка…")}</div>}><AdminPage user={user} onClose={() => setAdminOpen(false)} /></Suspense>;
 
   const has = graph.nodes.length > 0;
 
@@ -659,40 +666,40 @@ export default function App() {
       <aside className="sidebar">
         <div className="userbar">
           <span className="email">{user.email}</span>
-          {user.role === "admin" && <button className="link" onClick={() => setAdminOpen(true)}>⚙ Админ</button>}
-          <button className="link" onClick={() => setFeedbackOpen(true)} title="Сообщить об ошибке или предложить улучшение">✉ Отзыв</button>
-          <button className="link" onClick={logout}>Выйти</button>
+          {user.role === "admin" && <button className="link" onClick={() => setAdminOpen(true)}>{tr("⚙ Админ")}</button>}
+          <button className="link" onClick={() => setFeedbackOpen(true)} title={tr("Сообщить об ошибке или предложить улучшение")}>{tr("✉ Отзыв")}</button>
+          <button className="link" onClick={logout}>{tr("Выйти")}</button>
         </div>
 
         <div className="projbar">
           <select value={currentId ?? ""}
             onChange={(e) => { const v = e.target.value; requestNav(() => (v ? openProject(v) : newProject())); }}>
-            <option value="">— новое дело —</option>
+            <option value="">{tr("— новое дело —")}</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <div className="projbtns">
-            <button onClick={() => requestNav(newProject)}>Новое</button>
-            <button className="primary" onClick={saveProject}>Сохранить{dirty ? " •" : ""}</button>
-            <button onClick={rename} disabled={!has && !currentId}>Переим.</button>
-            <button onClick={deleteProject} disabled={!currentId}>Удалить</button>
+            <button onClick={() => requestNav(newProject)}>{tr("Новое")}</button>
+            <button className="primary" onClick={saveProject}>{tr("Сохранить")}{dirty ? " •" : ""}</button>
+            <button onClick={rename} disabled={!has && !currentId}>{tr("Переим.")}</button>
+            <button onClick={deleteProject} disabled={!currentId}>{tr("Удалить")}</button>
           </div>
-          {name && <div className="curname">{name}{dirty && <i> · не сохранено</i>}</div>}
+          {name && <div className="curname">{name}{dirty && <i> {tr("· не сохранено")}</i>}</div>}
         </div>
 
         {msg && <div className="flash">{msg}</div>}
 
         <button className="filebtn" style={{ marginTop: 10 }} onClick={() => setImportOpen(true)}>
-          ↑ Импорт CSV / XLSX
+          {tr("↑ Импорт CSV / XLSX")}
         </button>
         <button className="filebtn" style={{ marginTop: 6 }} onClick={() => setOrbiterOpen(true)}>
-          ⇄ Кроссчейн (мосты)
+          {tr("⇄ Кроссчейн (мосты)")}
         </button>
         <ManualAdd onAdd={handleManualAdd} />
 
         {has && (
           <>
             <div className="stats">
-              {([["Wallet", "кошельки"], ["Tx", "переводы"], ["User", "аккаунты"], ["IP", "IP-адреса"], ["Entity", "сущности"]] as const).map(([k, ru]) => (
+              {([["Wallet", tr("кошельки")], ["Tx", tr("переводы")], ["User", tr("аккаунты")], ["IP", tr("IP-адреса")], ["Entity", tr("сущности")]] as const).map(([k, ru]) => (
                 <div key={k} className={`stat${graph.counts[k] ? "" : " zero"}`}>
                   <span className="num">{graph.counts[k]}</span>
                   <span className="lbl">{ru}</span>
@@ -709,7 +716,7 @@ export default function App() {
 
             {graph.linked.length > 0 && (
               <div className="linked">
-                <strong>Связанные аккаунты ({graph.linked.length})</strong>
+                <strong>{tr("Связанные аккаунты (")}{graph.linked.length})</strong>
                 <ul>
                   {graph.linked.slice(0, 25).map((l, i) => (
                     <li key={i}>
@@ -728,7 +735,7 @@ export default function App() {
           </>
         )}
 
-        <div className="hint">Клик по узлу открывает панель справа, двойной клик — эксплорер.</div>
+        <div className="hint">{tr("Клик по узлу открывает панель справа, двойной клик — эксплорер.")}</div>
       </aside>
       )}
       {sidebarOpen && (
@@ -760,6 +767,8 @@ export default function App() {
           onToggleCollapse={toggleCollapseTx}
           theme={theme}
           onToggleTheme={toggleTheme}
+          lang={getLang()}
+          onToggleLang={toggleLang}
           onFeedback={() => setFeedbackOpen(true)}
           onExportJson={exportJson}
           onExportPng={exportPng}
@@ -770,25 +779,25 @@ export default function App() {
           {selectMode === "merge" && (
             <div className="mergebar">
               <span>Кликайте узлы для объединения · выбрано: {selection.length}</span>
-              <button className="primary" disabled={selection.length < 2} onClick={confirmMerge}>Объединить</button>
-              <button onClick={exitSelect}>Отмена</button>
+              <button className="primary" disabled={selection.length < 2} onClick={confirmMerge}>{tr("Объединить")}</button>
+              <button onClick={exitSelect}>{tr("Отмена")}</button>
             </div>
           )}
           {selectMode === "delete" && (
             <div className="mergebar deletebar">
               <span>Кликайте узлы для удаления · выбрано: {selection.length}</span>
-              <button className="danger" disabled={!selection.length} onClick={confirmDelete}>Удалить ({selection.length})</button>
-              <button onClick={exitSelect}>Отмена</button>
+              <button className="danger" disabled={!selection.length} onClick={confirmDelete}>{tr("Удалить (")}{selection.length})</button>
+              <button onClick={exitSelect}>{tr("Отмена")}</button>
             </div>
           )}
           {!has ? (
             <div className="empty board-empty">
-              <h2>Дело пустое</h2>
-              <p>Вставьте адрес кошелька, ссылку на транзакцию или загрузите выгрузку с биржи — граф соберётся сам.</p>
-              <button className="primary" onClick={() => setSidebarOpen(true)}>Добавить первый адрес</button>
+              <h2>{tr("Дело пустое")}</h2>
+              <p>{tr("Вставьте адрес кошелька, ссылку на транзакцию или загрузите выгрузку с биржи — граф соберётся сам.")}</p>
+              <button className="primary" onClick={() => setSidebarOpen(true)}>{tr("Добавить первый адрес")}</button>
             </div>
           ) : (
-            <Suspense fallback={<div className="empty">Загрузка графа…</div>}>
+            <Suspense fallback={<div className="empty">{tr("Загрузка графа…")}</div>}>
               <GraphView
                 graph={graph}
                 onSelect={(n) => setSelectedId(n?.id ?? null)}
@@ -833,15 +842,15 @@ export default function App() {
       )}
 
       {importOpen && (
-        <Modal title="Импорт CSV / XLSX" onClose={() => setImportOpen(false)} width={560}>
-          <Suspense fallback={<div className="empty">Загрузка…</div>}>
+        <Modal title={tr("Импорт CSV / XLSX")} onClose={() => setImportOpen(false)} width={560}>
+          <Suspense fallback={<div className="empty">{tr("Загрузка…")}</div>}>
             <DataLoader onBuild={(g) => { applyGraph(mergeGraphs(graph, g)); setImportOpen(false); store.logUsage("Импорт CSV"); }} />
           </Suspense>
         </Modal>
       )}
       {orbiterOpen && (
-        <Modal title="Кроссчейн-переводы (мосты)" onClose={() => setOrbiterOpen(false)} width={460}>
-          <Suspense fallback={<div className="empty">Загрузка…</div>}>
+        <Modal title={tr("Кроссчейн-переводы (мосты)")} onClose={() => setOrbiterOpen(false)} width={460}>
+          <Suspense fallback={<div className="empty">{tr("Загрузка…")}</div>}>
             <OrbiterImport
               onAdd={(sub) => applyGraph(mergeGraphs(graph, finalize(sub.nodes, sub.edges)))}
               onClose={() => setOrbiterOpen(false)}
@@ -853,15 +862,15 @@ export default function App() {
         <FeedbackModal projectId={currentId} projectName={name} onClose={() => setFeedbackOpen(false)} />
       )}
       {unsaved && (
-        <Modal title="Несохранённые изменения" onClose={() => setUnsaved(null)}>
-          <p className="confirmmsg">Текущее дело не сохранено. Сохранить перед переключением?</p>
+        <Modal title={tr("Несохранённые изменения")} onClose={() => setUnsaved(null)}>
+          <p className="confirmmsg">{tr("Текущее дело не сохранено. Сохранить перед переключением?")}</p>
           <div className="modalactions">
             <button onClick={() => { const go = unsaved.proceed; setUnsaved(null); go(); }}>
-              Не сохранять
+              {tr("Не сохранять")}
             </button>
-            <button className="primary" onClick={() => saveThen(unsaved.proceed)}>Сохранить</button>
+            <button className="primary" onClick={() => saveThen(unsaved.proceed)}>{tr("Сохранить")}</button>
           </div>
-          <button className="link" onClick={() => setUnsaved(null)}>Отмена</button>
+          <button className="link" onClick={() => setUnsaved(null)}>{tr("Отмена")}</button>
         </Modal>
       )}
       {prompt && (

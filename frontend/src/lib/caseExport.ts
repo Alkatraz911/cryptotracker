@@ -1,3 +1,4 @@
+import { tr, locale, getLang } from "./i18n";
 // Case export (feature #2, part 3): turn the in-memory investigation into a
 // reproducible artefact — a JSON case file, a PNG of the graph, or a printable
 // report (→ PDF via the browser). The report bundles the graph snapshot, the
@@ -15,7 +16,7 @@ const slug = (s: string) => (s || "case").trim().replace(/[^\wа-яё\-]+/gi, "_
 const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-const fmtTs = (ms?: number | null) => (ms ? new Date(ms).toLocaleString() : "—");
+const fmtTs = (ms?: number | null) => (ms ? new Date(ms).toLocaleString(locale()) : "—");
 
 function triggerDownload(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
@@ -45,7 +46,7 @@ function txRows(graph: BuiltGraph) {
 // ── JSON case file ─────────────────────────────────────────────────────────
 export function buildCaseJson(name: string, graph: BuiltGraph, extras: CaseExtras = {}) {
   return {
-    meta: { name: name || "Без названия", exportedAt: new Date().toISOString(), tool: "CryptoTracker" },
+    meta: { name: name || tr("Без названия"), exportedAt: new Date().toISOString(), tool: "CryptoTracker" },
     stats: {
       nodes: graph.nodes.length, edges: graph.edges.length,
       annotations: (graph.annotations ?? []).length, transactions: txRows(graph).length,
@@ -77,7 +78,7 @@ function buildReportHtml(name: string, graph: BuiltGraph, pngDataUrl: string | n
   const chats = extras.chats ?? {};
 
   const annRow = (a: GAnnotation) =>
-    `<tr><td>${a.kind === "suspect" ? "🚩 подозрительно" : "📝 заметка"}</td>` +
+    `<tr><td>${a.kind === "suspect" ? tr("🚩 подозрительно") : tr("📝 заметка")}</td>` +
     `<td>${a.nodeIds.map((id) => esc(nodeLabel(byId.get(id)))).join("<br>")}</td>` +
     `<td>${esc(a.text)}</td><td class="muted">${esc(fmtTs(a.createdAt))}</td></tr>`;
 
@@ -102,8 +103,8 @@ function buildReportHtml(name: string, graph: BuiltGraph, pngDataUrl: string | n
     })
     .join("");
 
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<title>${esc(name || "Дело")} — отчёт</title>
+  return `<!doctype html><html lang="${getLang()}"><head><meta charset="utf-8">
+<title>${esc(name || tr("Дело"))} ${tr("— отчёт")}</title>
 <style>
   body { font: 13px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; color: #111; margin: 28px; }
   h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 15px; margin: 24px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
@@ -119,19 +120,19 @@ function buildReportHtml(name: string, graph: BuiltGraph, pngDataUrl: string | n
   .ai-node { border-left: 3px solid #a855f7; padding-left: 10px; margin: 10px 0; }
   @media print { body { margin: 12mm; } a { color: #111; } }
 </style></head><body>
-  <h1>${esc(name || "Дело без названия")}</h1>
-  <div class="meta">CryptoTracker · экспортировано ${esc(new Date().toLocaleString())}</div>
+  <h1>${esc(name || tr("Дело без названия"))}</h1>
+  <div class="meta">${tr("CryptoTracker · экспортировано")} ${esc(new Date().toLocaleString(locale()))}</div>
   <div class="stats">
-    <span><b>${graph.nodes.length}</b>узлов</span>
-    <span><b>${graph.edges.length}</b>рёбер</span>
-    <span><b>${txs.length}</b>транзакций</span>
-    <span><b>${anns.length}</b>заметок</span>
+    <span><b>${graph.nodes.length}</b>${tr("узлов")}</span>
+    <span><b>${graph.edges.length}</b>${tr("рёбер")}</span>
+    <span><b>${txs.length}</b>${tr("транзакций")}</span>
+    <span><b>${anns.length}</b>${tr("заметок")}</span>
   </div>
-  ${pngDataUrl ? `<h2>Граф</h2><img class="snap" src="${pngDataUrl}" alt="граф">` : ""}
-  ${anns.length ? `<h2>Заметки дела</h2><table><thead><tr><th>Тип</th><th>Узлы</th><th>Текст</th><th>Дата</th></tr></thead><tbody>${anns.map(annRow).join("")}</tbody></table>` : ""}
-  ${aiBlocks ? `<h2>ИИ-выводы</h2>${aiBlocks}` : ""}
-  ${txs.length ? `<h2>Транзакции (${txs.length})</h2><table><thead><tr><th>Хеш</th><th>Сеть</th><th class="num">Сумма</th><th>Время</th><th>Источник</th></tr></thead><tbody>${txs.slice(0, 500).map(txRow).join("")}</tbody></table>` : ""}
-  ${sources.length ? `<h2>Источники данных</h2><table><thead><tr><th>Источник</th><th>Статус</th><th>Последний успех</th><th>Последний сбой</th></tr></thead><tbody>${sources.map(srcRow).join("")}</tbody></table>` : ""}
+  ${pngDataUrl ? `<h2>${tr("Граф")}</h2><img class="snap" src="${pngDataUrl}" alt="${tr("граф")}">` : ""}
+  ${anns.length ? `<h2>${tr("Заметки дела")}</h2><table><thead><tr><th>${tr("Тип")}</th><th>${tr("Узлы")}</th><th>${tr("Текст")}</th><th>${tr("Дата")}</th></tr></thead><tbody>${anns.map(annRow).join("")}</tbody></table>` : ""}
+  ${aiBlocks ? `<h2>${tr("ИИ-выводы")}</h2>${aiBlocks}` : ""}
+  ${txs.length ? `<h2>${tr("Транзакции")} (${txs.length})</h2><table><thead><tr><th>${tr("Хеш")}</th><th>${tr("Сеть")}</th><th class="num">${tr("Сумма")}</th><th>${tr("Время")}</th><th>${tr("Источник")}</th></tr></thead><tbody>${txs.slice(0, 500).map(txRow).join("")}</tbody></table>` : ""}
+  ${sources.length ? `<h2>${tr("Источники данных")}</h2><table><thead><tr><th>${tr("Источник")}</th><th>${tr("Статус")}</th><th>${tr("Последний успех")}</th><th>${tr("Последний сбой")}</th></tr></thead><tbody>${sources.map(srcRow).join("")}</tbody></table>` : ""}
 </body></html>`;
 }
 

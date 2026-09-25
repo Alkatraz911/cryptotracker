@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { store, type AiModel, type AiModelCatalog } from "../lib/store";
 
@@ -27,10 +28,10 @@ export function markModel(id: string, patch: Partial<AiModel>) {
 }
 
 const STATUS_ICON: Record<AiModel["status"], string> = { ok: "✓", fail: "✗", unknown: "?" };
-const GROUPS: { status: AiModel["status"]; title: string }[] = [
-  { status: "ok", title: "Работают" },
-  { status: "unknown", title: "Не проверены" },
-  { status: "fail", title: "Не отвечают" },
+const groups = (): { status: AiModel["status"]; title: string }[] => [
+  { status: "ok", title: tr("Работают") },
+  { status: "unknown", title: tr("Не проверены") },
+  { status: "fail", title: tr("Не отвечают") },
 ];
 
 interface Props {
@@ -49,7 +50,7 @@ export default function AiModelPicker({ value, onChange, refreshKey = 0 }: Props
   useEffect(() => {
     let alive = true;
     setErr(null);
-    getCatalog(refreshKey > 0).then((c) => { if (alive) setCatalog(c); }).catch((e) => { if (alive) setErr(e.message ?? "Список моделей недоступен"); });
+    getCatalog(refreshKey > 0).then((c) => { if (alive) setCatalog(c); }).catch((e) => { if (alive) setErr(e.message ?? tr("Список моделей недоступен")); });
     return () => { alive = false; };
   }, [refreshKey]);
 
@@ -75,7 +76,7 @@ export default function AiModelPicker({ value, onChange, refreshKey = 0 }: Props
     if (!m) return;
     setProbing(id); setErr(null);
     try { apply(m, await store.aiProbeModel(id)); }
-    catch (e: any) { setErr(e.message ?? "Ошибка проверки"); }
+    catch (e: any) { setErr(e.message ?? tr("Ошибка проверки")); }
     finally { setProbing(null); }
   }
 
@@ -107,33 +108,33 @@ export default function AiModelPicker({ value, onChange, refreshKey = 0 }: Props
   return (
     <div className="ai-model">
       <label className="ai-model-row">
-        <span className="dk">модель</span>
+        <span className="dk">{tr("модель")}</span>
         <select value={selected} onChange={(e) => select(e.target.value)} disabled={!catalog || busy} title={sel?.error ?? sel?.id}>
-          {!catalog && <option value="">загрузка…</option>}
-          {catalog && GROUPS.map((g) => {
+          {!catalog && <option value="">{tr("загрузка…")}</option>}
+          {catalog && groups().map((g) => {
             const items = catalog.models.filter((m) => m.status === g.status);
             return items.length ? (
               <optgroup key={g.status} label={g.title}>
                 {items.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {STATUS_ICON[m.status]} {m.name}{m.free && catalog.allowPaid ? " (бесплатная)" : ""}{m.latencyMs != null && m.status === "ok" ? ` — ${(m.latencyMs / 1000).toFixed(1)} с` : ""}
+                    {STATUS_ICON[m.status]} {m.name}{m.free && catalog.allowPaid ? tr(" (бесплатная)") : ""}{m.latencyMs != null && m.status === "ok" ? ` — ${tr("{sec} с", { sec: (m.latencyMs / 1000).toFixed(1) })}` : ""}
                   </option>
                 ))}
               </optgroup>
             ) : null;
           })}
         </select>
-        <button type="button" className="link" disabled={!selected || busy} onClick={() => probeOne(selected)} title="Проверить выбранную модель">
+        <button type="button" className="link" disabled={!selected || busy} onClick={() => probeOne(selected)} title={tr("Проверить выбранную модель")}>
           {probing === selected ? "…" : "⟳"}
         </button>
       </label>
       <div className="ai-model-foot muted">
         {bulk
-          ? <>проверка {bulk.done}/{bulk.total}… <button type="button" className="link" onClick={() => { cancel.current = true; }}>стоп</button></>
+          ? <>{tr("проверка")} {bulk.done}/{bulk.total}… <button type="button" className="link" onClick={() => { cancel.current = true; }}>{tr("стоп")}</button></>
           : <>
-              {sel?.status === "fail" && <span className="ai-model-bad">не отвечает{sel.error ? `: ${sel.error}` : ""}. </span>}
-              {catalog && <button type="button" className="link" onClick={probeAll} disabled={busy}>проверить все</button>}
-              {catalog && <button type="button" className="link" onClick={() => getCatalog(true).then(setCatalog).catch((e) => setErr(e.message))} disabled={busy}>обновить список</button>}
+              {sel?.status === "fail" && <span className="ai-model-bad">{tr("не отвечает")}{sel.error ? `: ${sel.error}` : ""}. </span>}
+              {catalog && <button type="button" className="link" onClick={probeAll} disabled={busy}>{tr("проверить все")}</button>}
+              {catalog && <button type="button" className="link" onClick={() => getCatalog(true).then(setCatalog).catch((e) => setErr(e.message))} disabled={busy}>{tr("обновить список")}</button>}
               {err && <span className="ai-model-bad">{err}</span>}
             </>}
       </div>

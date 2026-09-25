@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { store, type AiAnalysis, type AiMsg, type AiNodeLite } from "../lib/store";
 import { neighborhoodSubgraph } from "../lib/graphMerge";
@@ -77,13 +78,13 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
         role: "assistant",
         text: analysis.narrative
           ? (analysis.diag ? `_${analysis.diag}_\n\n${analysis.narrative}` : analysis.narrative)
-          : (analysis.diag || "Модель не вернула ответ."),
+          : (analysis.diag || tr("Модель не вернула ответ.")),
         signals: analysis.signals,
       }]);
       setUsed(analysis.used);
     } catch (e: any) {
       if (seq !== runSeq.current) return;
-      setMsgs((m) => [...m, { role: "assistant", text: e.message ?? "Ошибка запроса к ИИ" }]);
+      setMsgs((m) => [...m, { role: "assistant", text: e.message ?? tr("Ошибка запроса к ИИ") }]);
     } finally {
       if (seq === runSeq.current) setBusy(false);
     }
@@ -110,10 +111,10 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
         focusAddress: focus?.address ?? undefined,
         focusNetwork: focus?.net ?? undefined,
       });
-      setFbSent(r.stored ? "Спасибо — учтём в следующих анализах." : "Спасибо за отзыв.");
+      setFbSent(r.stored ? tr("Спасибо — учтём в следующих анализах.") : tr("Спасибо за отзыв."));
       setShowCorrection(false); setCorrection("");
     } catch (e: any) {
-      setFbSent(e.message ?? "Не удалось отправить отзыв");
+      setFbSent(e.message ?? tr("Не удалось отправить отзыв"));
     }
   }
 
@@ -138,7 +139,7 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
       <div className="ai-chat-log" ref={logRef}>
         {focus && (
           <div className="ai-focus muted">
-            Фокус: {focus.entityName ? `«${focus.entityName}» ` : ""}
+            {tr("Фокус:")} {focus.entityName ? `«${focus.entityName}» ` : ""}
             {focus.address ?? focus.label?.replace("\n", " ") ?? focus.id}
             {focus.net && focus.net !== "UNKNOWN" ? `, ${focus.net}` : ""}
           </div>
@@ -158,19 +159,19 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
               : <div className="ai-bubble">{m.text}</div>}
           </div>
         ))}
-        {busy && <div className="ai-msg assistant"><div className="ai-bubble ai-thinking">Модель печатает…</div></div>}
+        {busy && <div className="ai-msg assistant"><div className="ai-bubble ai-thinking">{tr("Модель печатает…")}</div></div>}
 
         {hasAssistant && !busy && (
           <div className="ai-feedback">
-            <span className="muted">Полезно?</span>
+            <span className="muted">{tr("Полезно?")}</span>
             <button className="link" onClick={() => sendFeedback("up")}>👍</button>
             <button className="link" onClick={() => setShowCorrection((v) => !v)}>👎</button>
             {fbSent && <span className="ai-fb-ok">{fbSent}</span>}
             {showCorrection && (
               <div className="ai-correction">
-                <textarea placeholder="Что не так / как правильно? (станет подсказкой на будущее)"
+                <textarea placeholder={tr("Что не так / как правильно? (станет подсказкой на будущее)")}
                   value={correction} onChange={(e) => setCorrection(e.target.value)} />
-                <button className="primary" onClick={() => sendFeedback("down")}>Отправить коррекцию</button>
+                <button className="primary" onClick={() => sendFeedback("down")}>{tr("Отправить коррекцию")}</button>
               </div>
             )}
           </div>
@@ -178,30 +179,30 @@ export default function AiChat({ graph, focusId, messages, onMessagesChange }: P
 
         {focus?.address && hasAssistant && !busy && (
           <details className="ai-know">
-            <summary>Запомнить этот адрес в базе знаний</summary>
-            <input placeholder="Название (напр. «Депозит Binance»)" value={kTitle} onChange={(e) => setKTitle(e.target.value)} />
-            <textarea placeholder="Что известно об адресе (роль, риск, источник)" value={kContent} onChange={(e) => setKContent(e.target.value)} />
+            <summary>{tr("Запомнить этот адрес в базе знаний")}</summary>
+            <input placeholder={tr("Название (напр. «Депозит Binance»)")} value={kTitle} onChange={(e) => setKTitle(e.target.value)} />
+            <textarea placeholder={tr("Что известно об адресе (роль, риск, источник)")} value={kContent} onChange={(e) => setKContent(e.target.value)} />
             <button className="primary" onClick={saveKnowledge} disabled={!kTitle.trim() || !kContent.trim()}>
-              {kSaved ? "Сохранено ✓" : "Сохранить"}
+              {kSaved ? tr("Сохранено ✓") : tr("Сохранить")}
             </button>
           </details>
         )}
 
         {used && (
           <div className="ai-engine muted">
-            Отвечала {used.model}. В контексте: {used.nodes} узлов, {used.knowledge} записей базы знаний.
+            {tr("Отвечала")} {used.model}{tr(". В контексте:")} {used.nodes} {tr("узлов,")} {used.knowledge} {tr("записей базы знаний.")}
           </div>
         )}
       </div>
 
       <div className="ai-chat-input">
         <textarea
-          placeholder="Спросите: «куда выводят средства?», «кто контрагенты?»…"
+          placeholder={tr("Спросите: «куда выводят средства?», «кто контрагенты?»…")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } }}
         />
-        <button className="primary" onClick={() => ask()} disabled={busy || !input.trim()}>Отправить</button>
+        <button className="primary" onClick={() => ask()} disabled={busy || !input.trim()}>{tr("Отправить")}</button>
       </div>
     </div>
   );

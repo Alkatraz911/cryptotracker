@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useState } from "react";
 import Modal from "./Modal";
 
@@ -11,7 +12,7 @@ interface Props {
 }
 
 export default function PromptModal({
-  title, label, defaultValue = "", confirmText = "ОК", onSubmit, onClose,
+  title, label, defaultValue = "", confirmText = tr("ОК"), onSubmit, onClose,
 }: Props) {
   const [value, setValue] = useState(defaultValue);
   return (
@@ -22,7 +23,7 @@ export default function PromptModal({
         {label && <label>{label}</label>}
         <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
         <div className="modalactions">
-          <button type="button" onClick={onClose}>Отмена</button>
+          <button type="button" onClick={onClose}>{tr("Отмена")}</button>
           <button type="submit" className="primary" disabled={!value.trim()}>{confirmText}</button>
         </div>
       </form>

@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import Modal from "./Modal";
 
 interface Props {
@@ -10,13 +11,13 @@ interface Props {
 }
 
 export default function ConfirmModal({
-  title = "Подтверждение", message, confirmText = "ОК", danger, onConfirm, onClose,
+  title = tr("Подтверждение"), message, confirmText = tr("ОК"), danger, onConfirm, onClose,
 }: Props) {
   return (
     <Modal title={title} onClose={onClose}>
       <p className="confirmmsg">{message}</p>
       <div className="modalactions">
-        <button onClick={onClose}>Отмена</button>
+        <button onClick={onClose}>{tr("Отмена")}</button>
         <button className={danger ? "danger" : "primary"}
           onClick={() => { onConfirm(); onClose(); }}>
           {confirmText}

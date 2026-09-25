@@ -1,3 +1,4 @@
+import { tr, locale } from "../lib/i18n";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 // AI chat is opened on demand — load it lazily so it isn't in the initial bundle.
 const AiChat = lazy(() => import("./AiChat"));
@@ -31,14 +32,14 @@ type Tab = "overview" | "txs" | "links" | "ai";
 type NetState = { transfers: Transfer[]; loading: boolean; err?: string; diag?: string; status?: SourceStatus };
 type BalState = { bal: WalletBalance | null; loading: boolean };
 
-const NA = "не определено";
+const na = () => tr("не определено");
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "?");
 const fmtDate = (ts?: number) =>
-  ts ? new Date(ts).toLocaleString(undefined, { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+  ts ? new Date(ts).toLocaleString(locale(), { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
 const fmtUsd = (v?: number) =>
-  v == null ? "" : "$" + v.toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) < 1 ? 4 : 0 });
+  v == null ? "" : "$" + v.toLocaleString(locale(), { maximumFractionDigits: Math.abs(v) < 1 ? 4 : 0 });
 const fmtAmt = (v?: number) =>
-  v == null ? "" : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  v == null ? "" : v.toLocaleString(locale(), { maximumFractionDigits: 4 });
 const sumUsd = (ts: { usdValue?: number }[]) => ts.reduce((s, t) => s + (t.usdValue ?? 0), 0);
 
 // Stamp the tags the list already shows onto a transfer row before it goes to the
@@ -57,16 +58,16 @@ function withKnownLabels(t: Transfer, ...maps: Map<string, string>[]): Transfer 
 }
 
 // Headline balance value: total USD across all holdings, else the largest
-// holding's amount, else "не определено".
+// holding's amount, else tr("не определено").
 function balanceValue(bal?: WalletBalance | null): string {
-  if (!bal || !bal.holdings.length) return NA;
+  if (!bal || !bal.holdings.length) return na();
   if (bal.totalUsd != null) return fmtUsd(bal.totalUsd);
   const top = bal.holdings[0];
   return `${fmtAmt(top.amount)} ${top.asset}`;
 }
 // Tooltip: per-asset breakdown.
 function balanceTitle(bal?: WalletBalance | null): string {
-  if (!bal || !bal.holdings.length) return "Ончейн-баланс выбранной сети (нативный токен + токены)";
+  if (!bal || !bal.holdings.length) return tr("Ончейн-баланс выбранной сети (нативный токен + токены)");
   return bal.holdings
     .map((h) => `${fmtAmt(h.amount)} ${h.asset}${h.usdValue != null ? ` (${fmtUsd(h.usdValue)})` : ""}`)
     .join("\n");
@@ -133,7 +134,7 @@ export default function SidePanel(props: Props) {
     setByNet((p) => ({ ...p, [net]: { transfers: p[net]?.transfers ?? [], loading: true } }));
     try {
       const { transfers, diag, status } = await store.walletTxs(net, node.address, opts);
-      const d = transfers.length ? undefined : (diag ? `Эксплорер: ${diag}` : "Транзакций не найдено для этого адреса.");
+      const d = transfers.length ? undefined : (diag ? tr("Эксплорер: {diag}", { diag: tr(diag) }) : tr("Транзакций не найдено для этого адреса."));
       setByNet((p) => ({ ...p, [net]: { transfers, loading: false, diag: d, status } }));
       onCacheNet(net, { transfers, diag: d ?? null, status });
     } catch (e: any) {
@@ -212,8 +213,8 @@ export default function SidePanel(props: Props) {
         ) : (
           node.net && node.net !== "UNKNOWN" && <span className="net">{node.chainName ?? node.net}</span>
         )}
-        {risky && <span className="risk-pill">⚠ риск</span>}
-        <button className="x sp-x" onClick={onClose} title="Закрыть">×</button>
+        {risky && <span className="risk-pill">{tr("⚠ риск")}</span>}
+        <button className="x sp-x" onClick={onClose} title={tr("Закрыть")}>×</button>
       </div>
 
       <div className="sp-title">
@@ -221,11 +222,11 @@ export default function SidePanel(props: Props) {
         <div className="sp-addr">
           <code className="mono">{node.address ?? node.hash ?? node.ip ?? node.uid ?? short(node.id)}</code>
           {(node.address || node.hash) && (
-            <button className="sp-copy" title="Скопировать"
+            <button className="sp-copy" title={tr("Скопировать")}
               onClick={() => navigator.clipboard?.writeText(node.address ?? node.hash ?? "")}>⧉</button>
           )}
           {node.explorerUrl && (
-            <a className="sp-ext" href={node.explorerUrl} target="_blank" rel="noopener" title="Открыть в эксплорере">↗</a>
+            <a className="sp-ext" href={node.explorerUrl} target="_blank" rel="noopener" title={tr("Открыть в эксплорере")}>↗</a>
           )}
         </div>
       </div>
@@ -233,44 +234,44 @@ export default function SidePanel(props: Props) {
       <div className="sp-metrics">
         {isWallet ? (
           <>
-            <Metric label="Отправлено" loading={txLoading}
-              value={txs ? String(sent.length) : NA} sub={txs && sentUsd > 0 ? fmtUsd(sentUsd) : undefined} />
-            <Metric label="Получено" loading={txLoading}
-              value={txs ? String(recv.length) : NA} sub={txs && recvUsd > 0 ? fmtUsd(recvUsd) : undefined} />
-            <Metric label="Баланс" loading={balLoading}
+            <Metric label={tr("Отправлено")} loading={txLoading}
+              value={txs ? String(sent.length) : na()} sub={txs && sentUsd > 0 ? fmtUsd(sentUsd) : undefined} />
+            <Metric label={tr("Получено")} loading={txLoading}
+              value={txs ? String(recv.length) : na()} sub={txs && recvUsd > 0 ? fmtUsd(recvUsd) : undefined} />
+            <Metric label={tr("Баланс")} loading={balLoading}
               value={balanceValue(curBal?.bal)}
-              sub={curBal?.bal && curBal.bal.holdings.length ? `${curBal.bal.holdings.length} актива` : undefined}
+              sub={curBal?.bal && curBal.bal.holdings.length ? tr("{n} актива", { n: curBal.bal.holdings.length }) : undefined}
               title={balanceTitle(curBal?.bal)} />
           </>
         ) : isAgg ? (
           <>
-            <Metric label="Сумма" value={node.amount != null ? `${fmtAmt(node.amount)} ${node.coin ?? ""}` : `${node.members?.length ?? 0} перев.`} />
-            <Metric label="Переводов" value={String(node.members?.length ?? 0)} />
-            <Metric label="Период" value={node.tsFrom ? `${fmtDate(node.tsFrom)} — ${fmtDate(node.tsTo)}` : NA} />
-            <Metric label="Сеть" value={node.net && node.net !== "UNKNOWN" ? node.net : NA} />
+            <Metric label={tr("Сумма")} value={node.amount != null ? `${fmtAmt(node.amount)} ${node.coin ?? ""}` : tr("{n} перев.", { n: node.members?.length ?? 0 })} />
+            <Metric label={tr("Переводов")} value={String(node.members?.length ?? 0)} />
+            <Metric label={tr("Период")} value={node.tsFrom ? `${fmtDate(node.tsFrom)} — ${fmtDate(node.tsTo)}` : na()} />
+            <Metric label={tr("Сеть")} value={node.net && node.net !== "UNKNOWN" ? node.net : na()} />
           </>
         ) : isTx ? (
           <>
-            <Metric label="Сумма" value={node.amount != null ? fmtAmt(node.amount) : NA} />
-            <Metric label="Актив" value={node.coin ?? NA} />
-            <Metric label="Дата" loading={dateBusy} value={node.timestamp ? fmtDate(node.timestamp) : NA}
-              sub={node.source ?? undefined} title={node.fetchedAt ? `загружено: ${fmtDate(node.fetchedAt)}` : undefined} />
-            <Metric label="Сеть" value={node.chainName ?? (node.net && node.net !== "UNKNOWN" ? node.net : NA)} />
+            <Metric label={tr("Сумма")} value={node.amount != null ? fmtAmt(node.amount) : na()} />
+            <Metric label={tr("Актив")} value={node.coin ?? na()} />
+            <Metric label={tr("Дата")} loading={dateBusy} value={node.timestamp ? fmtDate(node.timestamp) : na()}
+              sub={node.source ?? undefined} title={node.fetchedAt ? tr("загружено: {when}", { when: fmtDate(node.fetchedAt) }) : undefined} />
+            <Metric label={tr("Сеть")} value={node.chainName ?? (node.net && node.net !== "UNKNOWN" ? node.net : na())} />
           </>
         ) : (
           <>
-            <Metric label="Тип" value={node.kind} />
-            <Metric label="Связи" value={String(node.degree)} />
+            <Metric label={tr("Тип")} value={node.kind} />
+            <Metric label={tr("Связи")} value={String(node.degree)} />
           </>
         )}
       </div>
 
       <div className="sp-tabs">
-        <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Обзор</button>
-        {isWallet && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>Транзакции{txs ? ` (${txs.length})` : ""}</button>}
-        {isAgg && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>Транзакции ({node.members?.length ?? 0})</button>}
-        {isWallet && <button className={tab === "links" ? "active" : ""} onClick={() => setTab("links")}>Связи</button>}
-        <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>ИИ-чат{chat.length ? ` (${chat.filter((m) => m.role === "user").length || "•"})` : ""}</button>
+        <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>{tr("Обзор")}</button>
+        {isWallet && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>{tr("Транзакции")}{txs ? ` (${txs.length})` : ""}</button>}
+        {isAgg && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>{tr("Транзакции (")}{node.members?.length ?? 0})</button>}
+        {isWallet && <button className={tab === "links" ? "active" : ""} onClick={() => setTab("links")}>{tr("Связи")}</button>}
+        <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>{tr("ИИ-чат")}{chat.length ? ` (${chat.filter((m) => m.role === "user").length || "•"})` : ""}</button>
       </div>
 
       <div className={`sp-body${tab === "ai" ? " sp-body-ai" : ""}${tab === "txs" ? " sp-body-txs" : ""}`}>
@@ -296,7 +297,7 @@ export default function SidePanel(props: Props) {
           <LinksTab txs={txs} addr={addr} onAdd={onAdd} onFocus={onFocus} labelByAddr={labelByAddr} />
         )}
         {tab === "ai" && (
-          <Suspense fallback={<div className="ai-thinking">Загрузка ИИ-чата…</div>}>
+          <Suspense fallback={<div className="ai-thinking">{tr("Загрузка ИИ-чата…")}</div>}>
             <AiChat key={node.id} graph={graph} focusId={node.id} messages={chat} onMessagesChange={onChatChange} />
           </Suspense>
         )}
@@ -304,7 +305,7 @@ export default function SidePanel(props: Props) {
 
       {tab === "overview" && (
         <div className="sp-foot">
-          <button onClick={() => setTab("ai")}>Спросить ИИ об этом узле</button>
+          <button onClick={() => setTab("ai")}>{tr("Спросить ИИ об этом узле")}</button>
         </div>
       )}
     </aside>
@@ -312,12 +313,12 @@ export default function SidePanel(props: Props) {
 }
 
 function Metric({ label, value, sub, loading, title }: { label: string; value: string; sub?: string; loading?: boolean; title?: string }) {
-  const na = value === NA;
+  const isNa = value === na();
   return (
     <div className="sp-metric" title={title}>
       {loading
-        ? <span className="sp-mv loading">Загрузка…</span>
-        : <span className={`sp-mv${na ? " na" : ""}`} title={value}>{value}</span>}
+        ? <span className="sp-mv loading">{tr("Загрузка…")}</span>
+        : <span className={`sp-mv${isNa ? " na" : ""}`} title={value}>{value}</span>}
       {sub && !loading && <span className="sp-msub">{sub}</span>}
       <span className="sp-ml">{label}</span>
     </div>
@@ -370,8 +371,8 @@ function OverviewTab({
     try {
       const { label, bridge } = await store.addressLabel(node.net, node.address);
       if (label) onLabel(node.id, label, bridge);
-      else setLabelErr("Метка не найдена для этого адреса.");
-    } catch (e: any) { setLabelErr(e.message ?? "Ошибка запроса"); }
+      else setLabelErr(tr("Метка не найдена для этого адреса."));
+    } catch (e: any) { setLabelErr(e.message ?? tr("Ошибка запроса")); }
     finally { setLabelBusy(false); }
   }
 
@@ -385,7 +386,7 @@ function OverviewTab({
       await store.setLabel({ address: node.address, label, source: "okx" });
       onLabel(node.id, label);
       setLabelEdit(false); setLabelText("");
-    } catch (e: any) { setLabelErr(e.message ?? "Не удалось сохранить метку"); }
+    } catch (e: any) { setLabelErr(e.message ?? tr("Не удалось сохранить метку")); }
     finally { setLabelBusy(false); }
   }
 
@@ -394,7 +395,7 @@ function OverviewTab({
   async function copyScriptCreds() {
     const { api, token } = store.scriptCreds();
     try { await navigator.clipboard.writeText(`${api}\n${token ?? ""}`); setCredsCopied(true); setTimeout(() => setCredsCopied(false), 2500); }
-    catch { window.prompt("Скопируйте (адрес API и токен):", `${api}\n${token ?? ""}`); }
+    catch { window.prompt(tr("Скопируйте (адрес API и токен):"), `${api}\n${token ?? ""}`); }
   }
 
   function addAnnotation() {
@@ -418,11 +419,12 @@ function OverviewTab({
         const anchor = bridgeAnchorForTx(node, graph.nodes, graph.edges);
         onAdd(bridgeSubgraph(hop, anchor));
         const other = hop.sourceId.toLowerCase() === node.hash.toLowerCase()
-          ? `${hop.targetChainName} (получено)` : `${hop.sourceChainName} (отправлено)`;
-        const amt = hop.symbol ? `${hop.amount} ${hop.symbol}` : "перевод";
-        setBridgeMsg(`Найден мост: ${amt} ↔ ${other}. Узел добавлен в граф.`);
-      } else setBridgeMsg(diag ?? "Кроссчейн-перевод не найден.");
-    } catch (e: any) { setBridgeMsg(e.message ?? "Ошибка запроса к мосту"); }
+          ? tr("{chain} (получено)", { chain: hop.targetChainName })
+          : tr("{chain} (отправлено)", { chain: hop.sourceChainName });
+        const amt = hop.symbol ? `${hop.amount} ${hop.symbol}` : tr("перевод");
+        setBridgeMsg(tr("Найден мост: {amount} ↔ {other}. Узел добавлен в граф.", { amount: amt, other }));
+      } else setBridgeMsg(diag ?? tr("Кроссчейн-перевод не найден."));
+    } catch (e: any) { setBridgeMsg(e.message ?? tr("Ошибка запроса к мосту")); }
     finally { setBridgeBusy(false); }
   }
 
@@ -430,7 +432,7 @@ function OverviewTab({
     <>
       {isEntity && (
         <div className="entitybox" style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
-          <strong>Объединённая сущность · {node.mergedFrom!.length} узлов</strong>
+          <strong>{tr("Объединённая сущность · {n} узлов", { n: node.mergedFrom!.length })}</strong>
           <ul className="aliaslist">
             {node.mergedFrom!.map((m) => (
               <li key={m.id}>
@@ -440,20 +442,20 @@ function OverviewTab({
               </li>
             ))}
           </ul>
-          <button onClick={() => onUnmerge(node.id)}>Разъединить</button>
+          <button onClick={() => onUnmerge(node.id)}>{tr("Разъединить")}</button>
         </div>
       )}
 
       {canResolve && (
         <div className="bridgebox" style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
-          <strong>Кроссчейн-мост{resolver ? ` (${bridgeName})` : ""}</strong>
+          <strong>{tr("Кроссчейн-мост")}{resolver ? ` (${bridgeName})` : ""}</strong>
           <p className="muted">
             {resolver
-              ? `Транзакция ведёт к мосту ${bridgeName}. Найти её продолжение в сети назначения.`
-              : "Проверить кроссчейн-продолжение через Orbiter, deBridge, Across и LI.FI."}
+              ? tr("Транзакция ведёт к мосту {bridge}. Найти её продолжение в сети назначения.", { bridge: bridgeName })
+              : tr("Проверить кроссчейн-продолжение через Orbiter, deBridge, Across и LI.FI.")}
           </p>
           <button className="primary" onClick={resolveBridge} disabled={bridgeBusy}>
-            {bridgeBusy ? "Поиск…" : "Найти кроссчейн-продолжение"}
+            {bridgeBusy ? tr("Поиск…") : tr("Найти кроссчейн-продолжение")}
           </button>
           {bridgeMsg && <div className="flash">{bridgeMsg}</div>}
         </div>
@@ -461,13 +463,13 @@ function OverviewTab({
 
       {isWallet && (
         <div className={`netbox${node.net === "UNKNOWN" ? " netbox-warn" : ""}`} style={node.net === "UNKNOWN" ? undefined : { marginTop: 0, borderTop: "none", paddingTop: 0 }}>
-          <strong>Сеть {node.net === "UNKNOWN" && <span className="net-unknown-badge">не определена</span>}</strong>
+          <strong>{tr("Сеть")} {node.net === "UNKNOWN" && <span className="net-unknown-badge">{tr("не определена")}</span>}</strong>
           <div className="ltrow">
             <select value={netEdit} onChange={(e) => setNetEdit(e.target.value as Network)}>
               {ALL_NETWORKS.filter((n) => n !== "UNKNOWN").map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
             <button style={{ marginTop: 0, width: "auto", padding: "6px 12px" }}
-              disabled={netEdit === node.net} onClick={() => onSetNet(node.id, netEdit)}>Применить</button>
+              disabled={netEdit === node.net} onClick={() => onSetNet(node.id, netEdit)}>{tr("Применить")}</button>
           </div>
         </div>
       )}
@@ -476,26 +478,24 @@ function OverviewTab({
         <div className="labelbox">
           {node.entityName && !labelEdit ? (
             <div className="labelbox-found">
-              <span className="dk">Владелец</span>
+              <span className="dk">{tr("Владелец")}</span>
               <span className="entity-name">{node.entityName}</span>
-              <button className="link" onClick={fetchLabel} disabled={labelBusy} title="Обновить">↺</button>
-              <button className="link" onClick={() => { setLabelText(node.entityName ?? ""); setLabelEdit(true); }} title="Исправить метку">✎</button>
+              <button className="link" onClick={fetchLabel} disabled={labelBusy} title={tr("Обновить")}>↺</button>
+              <button className="link" onClick={() => { setLabelText(node.entityName ?? ""); setLabelEdit(true); }} title={tr("Исправить метку")}>✎</button>
             </div>
           ) : labelEdit ? (
             <form className="labeledit" onSubmit={(e) => { e.preventDefault(); void saveLabel(); }}>
               <input autoFocus value={labelText} onChange={(e) => setLabelText(e.target.value)} maxLength={120}
-                placeholder="Метка (например, FixedFloat. User)" />
+                placeholder={tr("Метка (например, FixedFloat. User)")} />
               <div className="labeledit-actions">
-                <button type="submit" className="primary" disabled={!labelText.trim() || labelBusy}>{labelBusy ? "…" : "Сохранить в реестр"}</button>
-                <button type="button" onClick={() => setLabelEdit(false)}>Отмена</button>
+                <button type="submit" className="primary" disabled={!labelText.trim() || labelBusy}>{labelBusy ? "…" : tr("Сохранить в реестр")}</button>
+                <button type="button" onClick={() => setLabelEdit(false)}>{tr("Отмена")}</button>
               </div>
               {node.net && node.net !== "UNKNOWN" && (
                 <p className="muted">
-                  Метку можно взять в <a href={okxAddressUrl(node.net, node.address!) ?? "#"} target="_blank" rel="noreferrer">OKX Explorer ↗</a> — скопируйте её сюда,
-                  и она будет подтягиваться автоматически во всех делах.
-                  {" "}Или поставьте <a href="/okx-labels.user.js" target="_blank" rel="noreferrer">скрипт для браузера</a> (Tampermonkey): он сам
-                  соберёт теги со страниц OKX.{" "}
-                  <button type="button" className="link inline" onClick={copyScriptCreds}>{credsCopied ? "скопировано ✓" : "скопировать токен для скрипта"}</button>
+                  {tr("Метку можно взять в")} <a href={okxAddressUrl(node.net, node.address!) ?? "#"} target="_blank" rel="noreferrer">OKX Explorer ↗</a> {tr("— скопируйте её сюда, и она будет подтягиваться автоматически во всех делах.")}
+                  {" "}{tr("Или поставьте")} <a href="/okx-labels.user.js" target="_blank" rel="noreferrer">{tr("скрипт для браузера")}</a> {tr("(Tampermonkey): он сам соберёт теги со страниц OKX.")}{" "}
+                  <button type="button" className="link inline" onClick={copyScriptCreds}>{credsCopied ? tr("скопировано ✓") : tr("скопировать токен для скрипта")}</button>
                 </p>
               )}
               {labelErr && <div className="muted">{labelErr}</div>}
@@ -504,9 +504,9 @@ function OverviewTab({
             <>
               <div className="labelbox-actions">
                 <button onClick={fetchLabel} disabled={labelBusy}>
-                  {labelBusy ? "Загрузка…" : "Получить метку из эксплорера"}
+                  {labelBusy ? tr("Загрузка…") : tr("Получить метку из эксплорера")}
                 </button>
-                <button onClick={() => setLabelEdit(true)} title="Ввести метку вручную или из OKX Explorer">✎</button>
+                <button onClick={() => setLabelEdit(true)} title={tr("Ввести метку вручную или из OKX Explorer")}>✎</button>
               </div>
               {labelErr && <div className="muted">{labelErr}</div>}
             </>
@@ -517,7 +517,7 @@ function OverviewTab({
       {/* Case notes (Phase 4): timestamped investigator notes / suspect flags
           tied to this node — the raw material of the case narrative. */}
       <div className="annbox">
-        <strong>Заметки</strong>
+        <strong>{tr("Заметки")}</strong>
         {nodeAnnotations.length > 0 && (
           <ul className="annlist">
             {nodeAnnotations.slice().sort((a, b) => b.createdAt - a.createdAt).map((a) => (
@@ -525,38 +525,38 @@ function OverviewTab({
                 <span className="anngly">{a.kind === "suspect" ? "🚩" : "📝"}</span>
                 <div className="anntext">
                   <div>{a.text}</div>
-                  <div className="annmeta">{fmtDate(a.createdAt)}{a.nodeIds.length > 1 ? ` · ${a.nodeIds.length} узлов` : ""}</div>
+                  <div className="annmeta">{fmtDate(a.createdAt)}{a.nodeIds.length > 1 ? ` · ${tr("{n} узлов", { n: a.nodeIds.length })}` : ""}</div>
                 </div>
-                <button className="link anndel" title="Удалить" onClick={() => onDeleteAnnotation(a.id)}>✕</button>
+                <button className="link anndel" title={tr("Удалить")} onClick={() => onDeleteAnnotation(a.id)}>✕</button>
               </li>
             ))}
           </ul>
         )}
         <textarea
           className="anninput"
-          placeholder="заметка по узлу для отчёта…"
+          placeholder={tr("заметка по узлу для отчёта…")}
           rows={2}
           value={annText}
           onChange={(e) => setAnnText(e.target.value)}
         />
         <div className="annrow">
           <select value={annKind} onChange={(e) => setAnnKind(e.target.value as AnnotationKind)}>
-            <option value="note">📝 заметка</option>
-            <option value="suspect">🚩 подозрительно</option>
+            <option value="note">{tr("📝 заметка")}</option>
+            <option value="suspect">{tr("🚩 подозрительно")}</option>
           </select>
-          <button className="primary" onClick={addAnnotation} disabled={!annText.trim()}>Добавить</button>
+          <button className="primary" onClick={addAnnotation} disabled={!annText.trim()}>{tr("Добавить")}</button>
         </div>
       </div>
 
       <div className="delbox">
         {confirmDel ? (
           <div className="delconfirm">
-            <span>Удалить узел и все его связи?</span>
-            <button className="danger" onClick={() => onRemove(node.id)}>Удалить</button>
-            <button onClick={() => setConfirmDel(false)}>Отмена</button>
+            <span>{tr("Удалить узел и все его связи?")}</span>
+            <button className="danger" onClick={() => onRemove(node.id)}>{tr("Удалить")}</button>
+            <button onClick={() => setConfirmDel(false)}>{tr("Отмена")}</button>
           </div>
         ) : (
-          <button className="ghost-danger" onClick={() => setConfirmDel(true)}>Удалить из графа</button>
+          <button className="ghost-danger" onClick={() => setConfirmDel(true)}>{tr("Удалить из графа")}</button>
         )}
       </div>
     </>
@@ -626,22 +626,22 @@ function AggTxTab({ node }: { node: GNode }) {
   return (
     <div className="tx-tab">
       <div className="picker-header">
-        <span>{members.length} свёрнутых переводов{node.amount != null ? ` · Σ ${fmtAmt(node.amount)} ${node.coin ?? ""}` : ""}</span>
+        <span>{members.length} {tr("свёрнутых переводов")}{node.amount != null ? ` · Σ ${fmtAmt(node.amount)} ${node.coin ?? ""}` : ""}</span>
       </div>
       <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll}>
         <table className="transfer-table">
           <thead>
-            <tr><th>Дата</th><th className="num">Сумма</th><th>Хеш</th></tr>
+            <tr><th>{tr("Дата")}</th><th className="num">{tr("Сумма")}</th><th>{tr("Хеш")}</th></tr>
           </thead>
           <tbody>
             {v.padTop > 0 && <tr style={{ height: v.padTop }} aria-hidden />}
             {window.map((m, i) => (
-              <tr key={v.start + i} title={`источник: ${m.source ?? "—"}\nзагружено: ${m.fetchedAt ? fmtDate(m.fetchedAt) : "—"}`}>
+              <tr key={v.start + i} title={tr("источник: {source}\nзагружено: {when}", { source: m.source ?? "—", when: m.fetchedAt ? fmtDate(m.fetchedAt) : "—" })}>
                 <td className="tdate">{fmtDate(m.timestamp)}</td>
                 <td className="num tamt">{fmtAmt(m.amount)} {m.coin ?? ""}</td>
                 <td>
                   <span className="mono">{m.hash ? `${m.hash.slice(0, 10)}…` : "—"}</span>
-                  {m.explorerUrl && <a className="txlink" href={m.explorerUrl} target="_blank" rel="noopener" title="Открыть в эксплорере" onClick={(e) => e.stopPropagation()}>↗</a>}
+                  {m.explorerUrl && <a className="txlink" href={m.explorerUrl} target="_blank" rel="noopener" title={tr("Открыть в эксплорере")} onClick={(e) => e.stopPropagation()}>↗</a>}
                 </td>
               </tr>
             ))}
@@ -706,9 +706,9 @@ function TxTab({
         const { transfers, diag } = await onLoadWindow(fromMs, toMs);
         if (cancelled) return;
         setWindowed(transfers);
-        setWinDiag(transfers.length ? null : (diag ?? "За выбранный период транзакций не найдено."));
+        setWinDiag(transfers.length ? null : (diag ?? tr("За выбранный период транзакций не найдено.")));
       } catch (e: any) {
-        if (!cancelled) { setWindowed([]); setWinDiag(e.message ?? "Ошибка загрузки за период"); }
+        if (!cancelled) { setWindowed([]); setWinDiag(e.message ?? tr("Ошибка загрузки за период")); }
       } finally {
         if (!cancelled) setWinBusy(false);
       }
@@ -795,36 +795,36 @@ function TxTab({
     <div className="tx-tab">
       <div className="loadtx" style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
         <div className="ltrow">
-          <label>Сеть</label>
+          <label>{tr("Сеть")}</label>
           <select value={activeNet} onChange={(e) => onNet(e.target.value as Network)}>
             {ALL_NETWORKS.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          <button className="link tx-refresh" title="Обновить данные из эксплорера" onClick={onRefresh} disabled={busy}>↻</button>
+          <button className="link tx-refresh" title={tr("Обновить данные из эксплорера")} onClick={onRefresh} disabled={busy}>↻</button>
         </div>
         <div className="ltchecks">
-          <label><input type="checkbox" checked={native} onChange={(e) => setNative(e.target.checked)} /> Нативные</label>
-          <label><input type="checkbox" checked={token} onChange={(e) => setToken(e.target.checked)} /> Токены</label>
+          <label><input type="checkbox" checked={native} onChange={(e) => setNative(e.target.checked)} /> {tr("Нативные")}</label>
+          <label><input type="checkbox" checked={token} onChange={(e) => setToken(e.target.checked)} /> {tr("Токены")}</label>
         </div>
         <div className="tx-daterow">
-          <span className="tx-date-lbl">период:</span>
-          <label>с <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} /></label>
-          <label>по <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></label>
+          <span className="tx-date-lbl">{tr("период:")}</span>
+          <label>{tr("с")} <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} /></label>
+          <label>{tr("по")} <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></label>
           {hasRange && (
-            <button className="link tx-date-clear" onClick={() => { setDateFrom(""); setDateTo(""); }}>сбросить</button>
+            <button className="link tx-date-clear" onClick={() => { setDateFrom(""); setDateTo(""); }}>{tr("сбросить")}</button>
           )}
         </div>
-        {loading && <div className="ai-thinking">{winBusy ? "Загрузка за период…" : "Загрузка транзакций…"}</div>}
+        {loading && <div className="ai-thinking">{winBusy ? tr("Загрузка за период…") : tr("Загрузка транзакций…")}</div>}
         {!loading && err && <div className="error">{err}</div>}
         {/* Distinguish a source problem from a genuinely empty wallet: a down
             source is transient (retry), a drifted parser needs a code fix. */}
         {!loading && (status === "down" || status === "drift") && (
           <div className={`flash source-issue ${status}`}>
-            <b>{status === "drift" ? "Источник изменил разметку" : "Источник недоступен"}</b>
+            <b>{status === "drift" ? tr("Источник изменил разметку") : tr("Источник недоступен")}</b>
             {" — "}
             {status === "drift"
-              ? "скрейпер устарел, данные могут быть неполными (нужно обновить парсер)."
-              : "не удалось получить данные. Нажмите ↻, чтобы повторить."}
-            {diag && <div className="source-issue-detail">{diag}</div>}
+              ? tr("скрейпер устарел, данные могут быть неполными (нужно обновить парсер).")
+              : tr("не удалось получить данные. Нажмите ↻, чтобы повторить.")}
+            {diag && <div className="source-issue-detail">{tr(diag)}</div>}
           </div>
         )}
         {!loading && !source.length && (winDiag || diag) && status !== "down" && status !== "drift" && <div className="flash">{winDiag ?? diag}</div>}
@@ -835,16 +835,16 @@ function TxTab({
           <div className="picker-header">
             <div className="tx-filters">
               <select value={dir} onChange={(e) => setDir(e.target.value as any)}>
-                <option value="">все</option>
-                <option value="in">входящие</option>
-                <option value="out">исходящие</option>
+                <option value="">{tr("все")}</option>
+                <option value="in">{tr("входящие")}</option>
+                <option value="out">{tr("исходящие")}</option>
               </select>
               <select value={asset} onChange={(e) => setAsset(e.target.value)}>
-                <option value="">все активы</option>
+                <option value="">{tr("все активы")}</option>
                 {assets.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
-            <span>{filtered.length} из {source.length}{hasRange ? " за период" : ""}{sel.size ? ` · выбрано ${sel.size}` : ""}</span>
+            <span>{filtered.length} {tr("из")} {source.length}{hasRange ? tr(" за период") : ""}{sel.size ? ` · ${tr("выбрано {n}", { n: sel.size })}` : ""}</span>
           </div>
 
           <div className="transfer-picker-wrap wide" ref={v.ref} onScroll={v.onScroll}>
@@ -852,9 +852,9 @@ function TxTab({
               <thead>
                 <tr>
                   <th></th>
-                  <th className="sortable" onClick={() => sortBy("date")}>Дата{sortKey === "date" ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
-                  <th>Тип</th><th>Контрагент</th>
-                  <th className="num">Сумма</th>
+                  <th className="sortable" onClick={() => sortBy("date")}>{tr("Дата")}{sortKey === "date" ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
+                  <th>{tr("Тип")}</th><th>{tr("Контрагент")}</th>
+                  <th className="num">{tr("Сумма")}</th>
                   <th className="num sortable" onClick={() => sortBy("usd")}>USD{sortKey === "usd" ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
                 </tr>
               </thead>
@@ -867,13 +867,13 @@ function TxTab({
                   const cpLabel = (out ? t.toLabel : t.fromLabel) ?? (cpLc ? labelByAddr.get(cpLc) ?? fetched.get(cpLc) : undefined);
                   // Provenance for this fact: where it came from + when we pulled it.
                   const txHref = t.hash ? txUrl(t.network as Network, t.hash) : null;
-                  const prov = `источник: ${t.source ?? "—"}\nзагружено: ${t.fetchedAt ? fmtDate(t.fetchedAt) : "—"}`;
+                  const prov = tr("источник: {source}\nзагружено: {when}", { source: t.source ?? "—", when: t.fetchedAt ? fmtDate(t.fetchedAt) : "—" });
                   return (
                     <tr key={i} className={`${sel.has(i) ? "sel" : ""}${cpLabel ? " tagged" : ""}`} onClick={() => toggle(i)}>
                       <td><input type="checkbox" checked={sel.has(i)} onChange={() => toggle(i)} onClick={(e) => e.stopPropagation()} /></td>
                       <td className="tdate" title={prov}>
                         {fmtDate(t.timestamp)}
-                        {txHref && <a className="txlink" href={txHref} target="_blank" rel="noopener" title="Открыть в эксплорере" onClick={(e) => e.stopPropagation()}>↗</a>}
+                        {txHref && <a className="txlink" href={txHref} target="_blank" rel="noopener" title={tr("Открыть в эксплорере")} onClick={(e) => e.stopPropagation()}>↗</a>}
                       </td>
                       <td><span className={out ? "dir-out" : "dir-in"}>{out ? "→ out" : "← in"}</span></td>
                       <td className="tcp">
@@ -894,7 +894,7 @@ function TxTab({
 
           <button className="primary" disabled={!sel.size}
             onClick={() => { onAddSelected(selTransfers()); setSel(new Set()); }}>
-            Добавить выбранные в граф ({sel.size})
+            {tr("Добавить выбранные в граф (")}{sel.size})
           </button>
         </>
       )}
@@ -931,8 +931,8 @@ function LinksTab({
     return [...m.values()].sort((a, b) => (b.inN + b.outN) - (a.inN + a.outN));
   }, [txs, addr]);
 
-  if (!txs) return <p className="muted">Загрузите транзакции на вкладке «Транзакции», чтобы увидеть контрагентов.</p>;
-  if (!contacts.length) return <p className="muted">Контрагенты не найдены в загруженных переводах.</p>;
+  if (!txs) return <p className="muted">{tr("Загрузите транзакции на вкладке «Транзакции», чтобы увидеть контрагентов.")}</p>;
+  if (!contacts.length) return <p className="muted">{tr("Контрагенты не найдены в загруженных переводах.")}</p>;
 
   function addContact(c: Contact) {
     if (!txs || !addr) return;
@@ -942,7 +942,7 @@ function LinksTab({
 
   return (
     <div className="links-tab">
-      <p className="muted">{contacts.length} контрагентов из {txs.length} переводов</p>
+      <p className="muted">{contacts.length} {tr("контрагентов из")} {txs.length} {tr("переводов")}</p>
       <ul className="contact-list">
         {contacts.map((c) => (
           <li key={c.addr}>
@@ -957,8 +957,8 @@ function LinksTab({
               {c.usd > 0 && <span className="tusd">{fmtUsd(c.usd)}</span>}
             </div>
             <div className="contact-actions">
-              <button onClick={() => addContact(c)}>+ в граф</button>
-              <button onClick={() => onFocus(walletNodeId((c.net ?? "UNKNOWN") as Network, c.addr))} title="Найти на графе">⌕</button>
+              <button onClick={() => addContact(c)}>{tr("+ в граф")}</button>
+              <button onClick={() => onFocus(walletNodeId((c.net ?? "UNKNOWN") as Network, c.addr))} title={tr("Найти на графе")}>⌕</button>
             </div>
           </li>
         ))}

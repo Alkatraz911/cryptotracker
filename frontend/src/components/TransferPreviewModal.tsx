@@ -1,3 +1,4 @@
+import { tr, locale } from "../lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import Modal from "./Modal";
 import { networkColor } from "../lib/explorers";
@@ -24,13 +25,13 @@ interface Props<T extends PickableTransfer> {
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "?");
 
 const fmtDate = (ts?: number) =>
-  ts ? new Date(ts).toLocaleString(undefined, { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+  ts ? new Date(ts).toLocaleString(locale(), { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
 
 const fmtUsd = (v?: number) =>
-  v == null ? "" : "$" + v.toLocaleString(undefined, { maximumFractionDigits: v < 1 ? 4 : 0 });
+  v == null ? "" : "$" + v.toLocaleString(locale(), { maximumFractionDigits: v < 1 ? 4 : 0 });
 
 const fmtAmt = (v?: number) =>
-  v == null ? "" : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  v == null ? "" : v.toLocaleString(locale(), { maximumFractionDigits: 4 });
 
 function Addr({ addr, label }: { addr?: string | null; label?: string | null }) {
   return (
@@ -45,7 +46,7 @@ function TransferPreviewModal<T extends PickableTransfer>({
   transfers,
   onAdd,
   onClose,
-  title = "Предпросмотр транзакций",
+  title = tr("Предпросмотр транзакций"),
 }: Props<T>) {
   const [selected, setSelected] = useState(() => new Set(transfers.map((_, i) => i)));
 
@@ -77,10 +78,10 @@ function TransferPreviewModal<T extends PickableTransfer>({
     <Modal title={title} onClose={onClose} width={960}>
       <div className="picker-header">
         <span style={{ color: "#9ca3af", fontSize: 12 }}>
-          {transfers.length} переводов{totalUsd > 0 ? ` · выбрано ≈ $${totalUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : ""}
+          {transfers.length} {tr("переводов")}{totalUsd > 0 ? ` · ${tr("выбрано ≈ ${usd}", { usd: totalUsd.toLocaleString(locale(), { maximumFractionDigits: 0 }) })}` : ""}
         </span>
         <button className="link" onClick={toggleAll}>
-          {selected.size === transfers.length ? "Снять все" : "Выбрать все"}
+          {selected.size === transfers.length ? tr("Снять все") : tr("Выбрать все")}
         </button>
       </div>
 
@@ -88,8 +89,8 @@ function TransferPreviewModal<T extends PickableTransfer>({
         <table className="transfer-table">
           <thead>
             <tr>
-              <th></th><th>Сеть</th><th>Дата</th><th>Отправитель</th><th></th>
-              <th>Получатель</th><th className="num">Сумма</th><th className="num">USD</th>
+              <th></th><th>{tr("Сеть")}</th><th>{tr("Дата")}</th><th>{tr("Отправитель")}</th><th></th>
+              <th>{tr("Получатель")}</th><th className="num">{tr("Сумма")}</th><th className="num">USD</th>
             </tr>
           </thead>
           <tbody>
@@ -114,9 +115,9 @@ function TransferPreviewModal<T extends PickableTransfer>({
       </div>
 
       <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-        <button onClick={onClose} style={{ flex: "none", width: "auto", padding: "8px 12px" }}>Отмена</button>
+        <button onClick={onClose} style={{ flex: "none", width: "auto", padding: "8px 12px" }}>{tr("Отмена")}</button>
         <button onClick={() => { onAdd(transfers); onClose(); }} style={{ flex: 1 }}>
-          Добавить все ({transfers.length})
+          {tr("Добавить все (")}{transfers.length})
         </button>
         <button
           className="primary"
@@ -124,7 +125,7 @@ function TransferPreviewModal<T extends PickableTransfer>({
           disabled={selected.size === 0}
           style={{ flex: 1 }}
         >
-          Добавить выбранные ({selected.size})
+          {tr("Добавить выбранные (")}{selected.size})
         </button>
       </div>
     </Modal>

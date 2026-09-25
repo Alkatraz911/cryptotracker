@@ -1,3 +1,4 @@
+import { tr } from "./i18n";
 // CSV / XLSX parsing (client-side) + auto-detection of which column means what.
 import Papa from "papaparse";
 import * as XLSX from "xlsx";

@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useState } from "react";
 import Modal from "./Modal";
 import { store, type FeedbackKind } from "../lib/store";
@@ -45,59 +46,59 @@ export default function FeedbackModal({ projectId, projectName, onClose }: Props
         context: attach ? collectContext(projectId, projectName) : undefined,
       });
       setSent(true);
-    } catch (ex: any) { setErr(ex.message ?? "Не удалось отправить"); }
+    } catch (ex: any) { setErr(ex.message ?? tr("Не удалось отправить")); }
     finally { setBusy(false); }
   }
 
   if (sent) {
     return (
-      <Modal title="Спасибо!" onClose={onClose} width={420}>
+      <Modal title={tr("Спасибо!")} onClose={onClose} width={420}>
         <p className="fb-thanks">
-          {kind === "bug" ? "Отчёт об ошибке получен" : "Предложение получено"} — мы посмотрим его в ближайшее время.
+          {kind === "bug" ? tr("Отчёт об ошибке получен") : tr("Предложение получено")} {tr("— мы посмотрим его в ближайшее время.")}
         </p>
         <div className="modalactions">
-          <button type="button" className="primary" onClick={onClose}>Закрыть</button>
+          <button type="button" className="primary" onClick={onClose}>{tr("Закрыть")}</button>
         </div>
       </Modal>
     );
   }
 
   return (
-    <Modal title="Обратная связь" onClose={onClose} width={480}>
+    <Modal title={tr("Обратная связь")} onClose={onClose} width={480}>
       <form onSubmit={submit} className="fb-form">
-        <div className="fb-kind" role="radiogroup" aria-label="Тип обращения">
+        <div className="fb-kind" role="radiogroup" aria-label={tr("Тип обращения")}>
           <button type="button" className={kind === "bug" ? "active" : ""} onClick={() => setKind("bug")} aria-pressed={kind === "bug"}>
-            🐞 Сообщить об ошибке
+            {tr("🐞 Сообщить об ошибке")}
           </button>
           <button type="button" className={kind === "idea" ? "active" : ""} onClick={() => setKind("idea")} aria-pressed={kind === "idea"}>
-            💡 Предложить улучшение
+            {tr("💡 Предложить улучшение")}
           </button>
         </div>
 
-        <label>Кратко, в одну строку</label>
+        <label>{tr("Кратко, в одну строку")}</label>
         <input
           autoFocus maxLength={140} value={title} onChange={(e) => setTitle(e.target.value)}
-          placeholder={kind === "bug" ? "Например: не подтягивается метка на Tron-адресе" : "Например: экспорт таблицы транзакций в CSV"}
+          placeholder={kind === "bug" ? tr("Например: не подтягивается метка на Tron-адресе") : tr("Например: экспорт таблицы транзакций в CSV")}
         />
 
-        <label>{kind === "bug" ? "Что произошло и как повторить" : "Что хотелось бы и зачем"}</label>
+        <label>{kind === "bug" ? tr("Что произошло и как повторить") : tr("Что хотелось бы и зачем")}</label>
         <textarea
           rows={6} maxLength={5000} value={message} onChange={(e) => setMessage(e.target.value)}
           placeholder={kind === "bug"
-            ? "Что делали → что ожидали → что увидели. Адрес/сеть/хэш, если дело в данных."
-            : "Опишите сценарий: где в приложении это нужно и какую задачу решает."}
+            ? tr("Что делали → что ожидали → что увидели. Адрес/сеть/хэш, если дело в данных.")
+            : tr("Опишите сценарий: где в приложении это нужно и какую задачу решает.")}
         />
-        <div className="fb-counter">{message.trim().length < MIN_MESSAGE ? `ещё минимум ${MIN_MESSAGE - message.trim().length} симв.` : `${message.length} / 5000`}</div>
+        <div className="fb-counter">{message.trim().length < MIN_MESSAGE ? tr("ещё минимум {n} симв.", { n: MIN_MESSAGE - message.trim().length }) : `${message.length} / 5000`}</div>
 
         <label className="fb-attach">
           <input type="checkbox" checked={attach} onChange={(e) => setAttach(e.target.checked)} />
-          приложить технические данные (страница, браузер, текущее дело)
+          {tr("приложить технические данные (страница, браузер, текущее дело)")}
         </label>
 
         {err && <div className="error">{err}</div>}
         <div className="modalactions">
-          <button type="button" onClick={onClose}>Отмена</button>
-          <button type="submit" className="primary" disabled={!canSend}>{busy ? "Отправка…" : "Отправить"}</button>
+          <button type="button" onClick={onClose}>{tr("Отмена")}</button>
+          <button type="submit" className="primary" disabled={!canSend}>{busy ? tr("Отправка…") : tr("Отправить")}</button>
         </div>
       </form>
     </Modal>

@@ -6,7 +6,10 @@ import type { BuiltGraph } from "./graph";
 // Vercel deployment where the backend is rewritten to the same origin.
 // Set VITE_API_URL to the backend's absolute origin (no /api prefix) when the
 // frontend and backend are deployed as separate Vercel Projects.
+import { getLang, tr } from "./i18n";
+
 const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api";
+
 const TOKEN_KEY = "ct_token";
 
 let token: string | null = localStorage.getItem(TOKEN_KEY);
@@ -27,11 +30,11 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401) {
     setToken(null);
     onUnauthorized?.();
-    throw new Error("Сессия истекла — войдите снова");
+    throw new Error(tr("Сессия истекла — войдите снова"));
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    throw new Error(body.error ? tr(body.error) : `HTTP ${res.status}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -243,7 +246,7 @@ export const store = {
     question?: string;
     model?: string;
   }): Promise<AiAnalysis> {
-    return req<AiAnalysis>("/ai/analyze", { method: "POST", body: JSON.stringify(payload) });
+    return req<AiAnalysis>("/ai/analyze", { method: "POST", body: JSON.stringify({ ...payload, lang: getLang() }) });
   },
 
   // Models the active provider offers + their last known health.

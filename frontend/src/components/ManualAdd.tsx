@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useState } from "react";
 import { parseExplorerUrl, networkFromAddress, type ExplorerRef, type Network } from "../lib/explorers";
 import { store, type TxTransfer } from "../lib/store";
@@ -54,7 +55,7 @@ export default function ManualAdd({ onAdd }: Props) {
     const u = input.trim();
     if (!u) return;
     const r = parseExplorerUrl(u) ?? parseRawInput(u);
-    if (!r) { setErr("Вставьте ссылку, адрес кошелька или хеш транзакции"); return; }
+    if (!r) { setErr(tr("Вставьте ссылку, адрес кошелька или хеш транзакции")); return; }
     if (r.network === "UNKNOWN") {
       setRef(r);
       return;
@@ -78,20 +79,20 @@ export default function ManualAdd({ onAdd }: Props) {
         setTs(data.timestamp);
         if (data.transfers && data.transfers.length > 1) {
           setTransfers(data.transfers);
-          setNote(`${data.transfers.length} переводов в транзакции`);
+          setNote(tr("{n} переводов в транзакции", { n: data.transfers.length }));
         } else {
           setFrom(data.from ?? ""); setTo(data.to ?? "");
           setAmount(data.amount != null ? String(data.amount) : "");
           setAsset(data.asset ?? "");
-          setNote("Данные подтянуты из эксплорера — проверьте и поправьте при необходимости.");
+          setNote(tr("Данные подтянуты из эксплорера — проверьте и поправьте при необходимости."));
         }
       } else {
         setNote(diag
-          ? `Ошибка: ${diag}. Заполните поля вручную.`
-          : "API не вернул данные. Заполните from/to/сумму вручную.");
+          ? tr("Ошибка: {diag}. Заполните поля вручную.", { diag })
+          : tr("API не вернул данные. Заполните from/to/сумму вручную."));
       }
     } catch (e: any) {
-      setNote("Не удалось подтянуть данные. Заполните вручную. " + (e.message ?? ""));
+      setNote(tr("Не удалось подтянуть данные. Заполните вручную. ") + (e.message ?? ""));
     } finally {
       setBusy(false);
     }
@@ -131,10 +132,10 @@ export default function ManualAdd({ onAdd }: Props) {
 
   return (
     <div className="manual">
-      <strong>Добавить адрес или транзакцию</strong>
+      <strong>{tr("Добавить адрес или транзакцию")}</strong>
       <div className="urlrow">
         <input
-          placeholder="ссылка, адрес кошелька или хеш tx"
+          placeholder={tr("ссылка, адрес кошелька или хеш tx")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !busy && input.trim() && recognize()}
@@ -148,7 +149,7 @@ export default function ManualAdd({ onAdd }: Props) {
 
       {needNetPick && (
         <div className="manualform">
-          <div className="reftag">{ref!.kind === "tx" ? "Транзакция" : "Кошелёк"} · EVM — выберите сеть</div>
+          <div className="reftag">{ref!.kind === "tx" ? tr("Транзакция") : tr("Кошелёк")} · EVM — выберите сеть</div>
           <div className="reftag mono">{ref!.id}</div>
           <div className="ltrow" style={{ marginTop: 8 }}>
             <select
@@ -163,7 +164,7 @@ export default function ManualAdd({ onAdd }: Props) {
               onClick={confirmNetwork}
               style={{ margin: 0, width: "auto", padding: "6px 12px" }}
             >
-              Подтвердить
+              {tr("Подтвердить")}
             </button>
           </div>
         </div>
@@ -171,7 +172,7 @@ export default function ManualAdd({ onAdd }: Props) {
 
       {resolved && (
         <div className="manualform">
-          <div className="reftag">{ref!.kind === "tx" ? "Транзакция" : "Кошелёк"} · {ref!.network}</div>
+          <div className="reftag">{ref!.kind === "tx" ? tr("Транзакция") : tr("Кошелёк")} · {ref!.network}</div>
 
           {ref!.kind === "tx" && transfers.length <= 1 && (
             <>
@@ -190,10 +191,10 @@ export default function ManualAdd({ onAdd }: Props) {
 
           {transfers.length > 1 ? (
             <button className="primary" onClick={() => setShowPicker(true)}>
-              Предпросмотр переводов ({transfers.length}) →
+              {tr("Предпросмотр переводов (")}{transfers.length}) →
             </button>
           ) : (
-            <button className="primary" onClick={addSingle}>Добавить в граф</button>
+            <button className="primary" onClick={addSingle}>{tr("Добавить в граф")}</button>
           )}
         </div>
       )}

@@ -26,6 +26,9 @@ export interface AnalyzeInput {
   question?: string;
   // Model picked in the UI (must be one the catalogue offers); default AI_MODEL.
   model?: string;
+  // Interface language of the analyst who asked, so the narrative comes back in
+  // the language they are reading the case in.
+  lang?: 'ru' | 'en';
 }
 
 export interface RiskSignal { id: string; label: string; severity: 'info' | 'warn' | 'high' }
@@ -71,17 +74,27 @@ export class AiService {
     const facts = this.buildFacts(nodes, edges, focus, signals);
     const knowledgeBlock = this.buildKnowledgeBlock(knowledge);
 
-    const system =
-      'Ты — старший аналитик криптовалютных потоков средств (расследования, AML/комплаенс). ' +
-      'Тебе дают подграф фондового потока (кошельки, транзакции, мосты, метки бирж/контрактов) и базу знаний. ' +
-      'Задача: помочь следователю понять, что происходит, и куда смотреть дальше. ' +
-      'Отвечай ТОЛЬКО на русском, кратко и по делу, в формате Markdown с тремя разделами:\n' +
-      '1. **Сводка активности** — что это за узел и что с ним происходит.\n' +
-      '2. **Подозрительные паттерны и риски** — конкретные сигналы (мосты, миксеры, биржи, дробление, peel-chain). ' +
-      'Ссылайся на адреса/суммы/сети из данных.\n' +
-      '3. **Рекомендованные шаги** — что проверить или проследить дальше в этом инструменте.\n' +
-      'Опирайся на предоставленные паттерны и факты. НЕ выдумывай адреса, суммы или связи, которых нет в данных. ' +
-      'Если данных мало — прямо скажи об этом и предложи, что подгрузить.';
+    const system = input.lang === 'en'
+      ? 'You are a senior crypto fund-flow analyst (investigations, AML/compliance). ' +
+        'You are given a subgraph of a money flow (wallets, transactions, bridges, exchange/contract labels) and a knowledge base. ' +
+        'Your job: help the investigator understand what is going on and where to look next. ' +
+        'Answer ONLY in English, briefly and to the point, in Markdown with three sections:\n' +
+        '1. **Activity summary** — what this node is and what is happening to it.\n' +
+        '2. **Suspicious patterns and risks** — concrete signals (bridges, mixers, exchanges, structuring, peel chains). ' +
+        'Cite addresses, amounts and chains from the data.\n' +
+        '3. **Recommended next steps** — what to check or trace next in this tool.\n' +
+        'Rely on the patterns and facts provided. Do NOT invent addresses, amounts or links that are not in the data. ' +
+        'If the data is thin, say so plainly and suggest what to load.'
+      : 'Ты — старший аналитик криптовалютных потоков средств (расследования, AML/комплаенс). ' +
+        'Тебе дают подграф фондового потока (кошельки, транзакции, мосты, метки бирж/контрактов) и базу знаний. ' +
+        'Задача: помочь следователю понять, что происходит, и куда смотреть дальше. ' +
+        'Отвечай ТОЛЬКО на русском, кратко и по делу, в формате Markdown с тремя разделами:\n' +
+        '1. **Сводка активности** — что это за узел и что с ним происходит.\n' +
+        '2. **Подозрительные паттерны и риски** — конкретные сигналы (мосты, миксеры, биржи, дробление, peel-chain). ' +
+        'Ссылайся на адреса/суммы/сети из данных.\n' +
+        '3. **Рекомендованные шаги** — что проверить или проследить дальше в этом инструменте.\n' +
+        'Опирайся на предоставленные паттерны и факты. НЕ выдумывай адреса, суммы или связи, которых нет в данных. ' +
+        'Если данных мало — прямо скажи об этом и предложи, что подгрузить.';
 
     const prompt =
       `# Подграф для анализа\n${facts}\n\n` +

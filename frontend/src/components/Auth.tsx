@@ -1,3 +1,4 @@
+import { tr } from "../lib/i18n";
 import { useState } from "react";
 import { store, type User } from "../lib/store";
 
@@ -7,7 +8,7 @@ import { store, type User } from "../lib/store";
 // unprompted motion — and then sits still.
 function TraceFigure() {
   return (
-    <figure className="auth-trace" aria-label="След перевода: кошелёк → обменник → мост → биржа">
+    <figure className="auth-trace" aria-label={tr("След перевода: кошелёк → обменник → мост → биржа")}>
       <svg viewBox="0 0 440 300" role="img">
         <defs>
           <marker id="trace-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
@@ -22,7 +23,7 @@ function TraceFigure() {
 
         <g className="trace-stop" style={{ ["--d" as string]: "0s" }}>
           <circle cx="54" cy="52" r="16" className="ring tron" />
-          <text x="54" y="22" className="lbl">Кошелёк жертвы</text>
+          <text x="54" y="22" className="lbl">{tr("Кошелёк жертвы")}</text>
         </g>
         <g className="trace-stop" style={{ ["--d" as string]: "0.4s" }}>
           <circle cx="149" cy="106" r="9" className="bead" />
@@ -31,18 +32,18 @@ function TraceFigure() {
         <g className="trace-stop" style={{ ["--d" as string]: "0.7s" }}>
           <circle cx="248" cy="132" r="16" className="ring tron flagged" />
           <text x="248" y="167" className="lbl">FixedFloat</text>
-          <text x="248" y="183" className="sub">обменник без KYC</text>
+          <text x="248" y="183" className="sub">{tr("обменник без KYC")}</text>
         </g>
         <g className="trace-stop" style={{ ["--d" as string]: "1s" }}>
           <circle cx="336" cy="204" r="13" className="ring bridge" />
-          <text x="316" y="210" className="lbl end">Мост в ETH</text>
+          <text x="316" y="210" className="lbl end">{tr("Мост в ETH")}</text>
         </g>
         <g className="trace-stop" style={{ ["--d" as string]: "1.3s" }}>
           <circle cx="402" cy="256" r="16" className="ring bsc" />
-          <text x="398" y="290" className="lbl">Биржа</text>
+          <text x="398" y="290" className="lbl">{tr("Биржа")}</text>
         </g>
       </svg>
-      <figcaption>Семь часов и три сети между кражей и точкой вывода.</figcaption>
+      <figcaption>{tr("Семь часов и три сети между кражей и точкой вывода.")}</figcaption>
     </figure>
   );
 }
@@ -79,15 +80,15 @@ export default function Auth({ onAuthed }: { onAuthed: (u: User) => void }) {
           <h1>CryptoTracker</h1>
           <p className="sub">
             {mode === "login"
-              ? "Граф переводов, метки адресов и кроссчейн-мосты — в одном деле."
-              : "Новая учётная запись аналитика."}
+              ? tr("Граф переводов, метки адресов и кроссчейн-мосты — в одном деле.")
+              : tr("Новая учётная запись аналитика.")}
           </p>
 
           <label htmlFor="auth-email">Email</label>
           <input id="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
             autoComplete="username" required />
 
-          <label htmlFor="auth-pw">Пароль</label>
+          <label htmlFor="auth-pw">{tr("Пароль")}</label>
           <input id="auth-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
             autoComplete={mode === "login" ? "current-password" : "new-password"}
             minLength={6} required />
@@ -95,12 +96,12 @@ export default function Auth({ onAuthed }: { onAuthed: (u: User) => void }) {
           {err && <div className="error">{err}</div>}
 
           <button className="primary" disabled={busy}>
-            {busy ? "Проверяем…" : mode === "login" ? "Войти" : "Создать аккаунт"}
+            {busy ? tr("Проверяем…") : mode === "login" ? tr("Войти") : tr("Создать аккаунт")}
           </button>
 
           <button type="button" className="link"
             onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(null); }}>
-            {mode === "login" ? "Нет аккаунта? Зарегистрироваться" : "Уже есть аккаунт? Войти"}
+            {mode === "login" ? tr("Нет аккаунта? Зарегистрироваться") : tr("Уже есть аккаунт? Войти")}
           </button>
         </form>
       </div>

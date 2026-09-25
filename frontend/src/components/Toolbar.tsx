@@ -1,3 +1,4 @@
+import { tr, type Lang } from "../lib/i18n";
 import { useMemo, useRef, useState } from "react";
 import type { GNode } from "../lib/graph";
 import type { Theme } from "../lib/theme";
@@ -25,6 +26,8 @@ interface Props {
   onToggleCollapse: () => void;
   theme: Theme;
   onToggleTheme: () => void;
+  lang: Lang;
+  onToggleLang: () => void;
   onFeedback: () => void;
   onExportJson: () => void;
   onExportPng: () => void;
@@ -39,7 +42,7 @@ export default function Toolbar({
   canUndo, canRedo, onUndo, onRedo,
   hasGraph, onForceLayout, onStructure, mergeMode, onToggleMerge, deleteMode, onToggleDelete,
   collapsed, onToggleCollapse,
-  theme, onToggleTheme, onFeedback, onExportJson, onExportPng, onExportReport,
+  theme, onToggleTheme, lang, onToggleLang, onFeedback, onExportJson, onExportPng, onExportReport,
 }: Props) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -67,19 +70,19 @@ export default function Toolbar({
   return (
     <div className="toolbar">
       <button className={`tb-btn${sidebarOpen ? " active" : ""}`} onClick={onToggleSidebar}
-        title={sidebarOpen ? "Свернуть панель" : "Развернуть панель"}>☰</button>
+        title={sidebarOpen ? tr("Свернуть панель") : tr("Развернуть панель")}>☰</button>
       <input
         className="tb-title"
         value={name}
-        placeholder="Без названия"
+        placeholder={tr("Без названия")}
         onChange={(e) => onEditTitle(e.target.value)}
       />
-      {dirty && <span className="tb-dirty" title="Не сохранено">•</span>}
+      {dirty && <span className="tb-dirty" title={tr("Не сохранено")}>•</span>}
 
       <div className="tb-search">
         <span className="tb-mag">⌕</span>
         <input
-          placeholder="Поиск по адресу / метке…"
+          placeholder={tr("Поиск по адресу / метке…")}
           value={q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
@@ -93,7 +96,7 @@ export default function Toolbar({
           <div className="tb-search-results"
             onMouseDown={() => { if (blurTimer.current) clearTimeout(blurTimer.current); }}>
             {results.length === 0 ? (
-              <button disabled>Ничего не найдено</button>
+              <button disabled>{tr("Ничего не найдено")}</button>
             ) : (
               results.map((n) => (
                 <button key={n.id} onClick={() => pick(n.id)}>
@@ -112,19 +115,19 @@ export default function Toolbar({
       <div className="tb-spacer" />
 
       <div className="tb-group">
-        <button className="tb-btn" onClick={onUndo} disabled={!canUndo} title="Отменить (Ctrl+Z)">↶</button>
-        <button className="tb-btn" onClick={onRedo} disabled={!canRedo} title="Повторить (Ctrl+Shift+Z)">↷</button>
+        <button className="tb-btn" onClick={onUndo} disabled={!canUndo} title={tr("Отменить (Ctrl+Z)")}>↶</button>
+        <button className="tb-btn" onClick={onRedo} disabled={!canRedo} title={tr("Повторить (Ctrl+Shift+Z)")}>↷</button>
       </div>
 
       <div className="tb-sep" />
 
       <div className="tb-group">
-        <button className="tb-btn" onClick={onForceLayout} disabled={!hasGraph} title="Силовая раскладка">↺</button>
-        <button className="tb-btn" onClick={onStructure} disabled={!hasGraph} title="Иерархия (без пересечений)">⌗</button>
-        <button className={`tb-btn${mergeMode ? " active" : ""}`} onClick={onToggleMerge} disabled={!hasGraph} title="Объединить узлы в сущность">⧉</button>
-        <button className={`tb-btn tb-del${deleteMode ? " active" : ""}`} onClick={onToggleDelete} disabled={!hasGraph} title="Удалить несколько узлов">🗑</button>
+        <button className="tb-btn" onClick={onForceLayout} disabled={!hasGraph} title={tr("Силовая раскладка")}>↺</button>
+        <button className="tb-btn" onClick={onStructure} disabled={!hasGraph} title={tr("Иерархия (без пересечений)")}>⌗</button>
+        <button className={`tb-btn${mergeMode ? " active" : ""}`} onClick={onToggleMerge} disabled={!hasGraph} title={tr("Объединить узлы в сущность")}>⧉</button>
+        <button className={`tb-btn tb-del${deleteMode ? " active" : ""}`} onClick={onToggleDelete} disabled={!hasGraph} title={tr("Удалить несколько узлов")}>🗑</button>
         <button className={`tb-btn${collapsed ? " active" : ""}`} onClick={onToggleCollapse} disabled={!hasGraph}
-          title={collapsed ? "Развернуть переводы" : "Свернуть переводы между одними адресами в один"}>⇉</button>
+          title={collapsed ? tr("Развернуть переводы") : tr("Свернуть переводы между одними адресами в один")}>⇉</button>
       </div>
 
       <div className="tb-sep" />
@@ -132,23 +135,27 @@ export default function Toolbar({
       <div className="tb-export"
         onBlur={() => { exportBlur.current = setTimeout(() => setExportOpen(false), 150); }}
         onMouseDown={() => { if (exportBlur.current) clearTimeout(exportBlur.current); }}>
-        <button className="tb-btn" disabled={!hasGraph} title="Экспорт дела"
+        <button className="tb-btn" disabled={!hasGraph} title={tr("Экспорт дела")}
           onClick={() => setExportOpen((v) => !v)}>⭳</button>
         {exportOpen && hasGraph && (
           <div className="tb-export-menu">
-            <button onClick={() => { setExportOpen(false); onExportReport(); }}>📄 Отчёт (печать / PDF)</button>
-            <button onClick={() => { setExportOpen(false); onExportPng(); }}>🖼 Снимок графа (PNG)</button>
-            <button onClick={() => { setExportOpen(false); onExportJson(); }}>{"{ }"} Данные дела (JSON)</button>
+            <button onClick={() => { setExportOpen(false); onExportReport(); }}>{tr("📄 Отчёт (печать / PDF)")}</button>
+            <button onClick={() => { setExportOpen(false); onExportPng(); }}>{tr("🖼 Снимок графа (PNG)")}</button>
+            <button onClick={() => { setExportOpen(false); onExportJson(); }}>{"{ }"} {tr("Данные дела (JSON)")}</button>
           </div>
         )}
       </div>
 
       <div className="tb-sep" />
 
-      <button className="tb-btn" onClick={onToggleTheme} title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}>
+      <button className="tb-btn" onClick={onToggleTheme} title={theme === "dark" ? tr("Светлая тема") : tr("Тёмная тема")}>
         {theme === "dark" ? "☀" : "☾"}
       </button>
-      <button className="tb-btn" onClick={onFeedback} title="Сообщить об ошибке или предложить улучшение">✉</button>
+      <button className="tb-btn tb-lang" onClick={onToggleLang}
+        title={lang === "ru" ? "Switch to English" : "Переключить на русский"}>
+        {lang === "ru" ? "EN" : "RU"}
+      </button>
+      <button className="tb-btn" onClick={onFeedback} title={tr("Сообщить об ошибке или предложить улучшение")}>✉</button>
     </div>
   );
 }
