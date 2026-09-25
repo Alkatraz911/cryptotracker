@@ -6,6 +6,7 @@ import { BridgeRegistryService } from './bridge-registry.service';
 import { BridgeAddress } from './entities/bridge-address.entity';
 import { AddressLabel } from './entities/address-label.entity';
 import { LabelRegistryService } from './label-registry.service';
+import { DepositInferenceService } from './deposit-inference.service';
 import { EvmProvider } from './providers/evm.provider';
 import { TronProvider } from './providers/tron.provider';
 import { SolanaProvider } from './providers/solana.provider';
@@ -19,13 +20,11 @@ import { LifiAdapter } from './bridges/lifi.adapter';
 import { AcrossAdapter } from './bridges/across.adapter';
 import { ProviderHealthService } from './provider-health.service';
 import { ProviderHealthEntry } from './entities/provider-health.entity';
-import { OkxLabelTask } from './entities/okx-label-task.entity';
-import { OkxLabelQueueService } from './okx-label-queue.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry, OkxLabelTask])],
+  imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry])],
   providers: [
-    ExplorerService, BridgeRegistryService, LabelRegistryService, OkxLabelQueueService, ProviderHealthService,
+    ExplorerService, BridgeRegistryService, LabelRegistryService, DepositInferenceService, ProviderHealthService,
     EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider,
     BridgeHubService, OrbiterAdapter, DebridgeAdapter, LifiAdapter, AcrossAdapter,
   ],

@@ -45,23 +45,11 @@ class OkxTagDto {
   label!: string;
 }
 
-// What the userscript saw on an OKX transaction page for a claimed task.
-export class OkxReportDto {
-  @IsString()
-  @Matches(ADDRESS)
-  address!: string;
-
-  @IsIn(['found', 'none', 'failed'])
-  status!: 'found' | 'none' | 'failed';
-
+// Tags the OKX userscript read off a page.
+export class OkxTagsDto {
   @IsArray()
   @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => OkxTagDto)
   labels!: OkxTagDto[];
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(250)
-  error?: string;
 }

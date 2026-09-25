@@ -8,7 +8,7 @@ import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
 import { BridgeRegistryService } from './bridge-registry.service';
 import { LabelRegistryService } from './label-registry.service';
-import { OkxLabelQueueService } from './okx-label-queue.service';
+import { DepositInferenceService } from './deposit-inference.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService } from './provider-health.service';
 
@@ -19,7 +19,7 @@ const mockOrbiter = { resolve: jest.fn(), feed: jest.fn() };
 const mockDebridge = { resolve: jest.fn(), feed: jest.fn() };
 const mockPrice = { pricesFor: jest.fn().mockResolvedValue(new Map()) };
 const mockLabels = { forAddress: jest.fn().mockResolvedValue(undefined), remember: jest.fn(), list: jest.fn(), set: jest.fn(), setMany: jest.fn(), remove: jest.fn() };
-const mockOkxQueue = { enqueue: jest.fn(), markDone: jest.fn() };
+const mockDeposits = { infer: jest.fn().mockResolvedValue(null) };
 const mockBridgeRegistry = { forAddress: jest.fn(), list: jest.fn(), add: jest.fn(), remove: jest.fn() };
 const mockHub = { resolve: jest.fn(), resolveAny: jest.fn(), has: jest.fn(), resolvers: jest.fn() };
 const mockHealth = { record: jest.fn(), snapshot: jest.fn().mockReturnValue([]), degraded: jest.fn().mockReturnValue(false) };
@@ -41,7 +41,7 @@ describe('ExplorerService', () => {
         { provide: DebridgeProvider, useValue: mockDebridge },
         { provide: PriceProvider, useValue: mockPrice },
         { provide: LabelRegistryService, useValue: mockLabels },
-        { provide: OkxLabelQueueService, useValue: mockOkxQueue },
+        { provide: DepositInferenceService, useValue: mockDeposits },
         { provide: BridgeRegistryService, useValue: mockBridgeRegistry },
         { provide: BridgeHubService, useValue: mockHub },
         { provide: ProviderHealthService, useValue: mockHealth },
@@ -105,10 +105,38 @@ describe('ExplorerService', () => {
     expect(mockLabels.remember).toHaveBeenCalledWith('TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP', 'Bybit', 'tronscan');
   });
 
-  it('queues every looked-up address for the OKX userscript', async () => {
-    mockLabels.forAddress.mockResolvedValue({ address: 'x', label: 'Bybit', source: 'tronscan' });
-    await service.fetchAddressLabel('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
-    expect(mockOkxQueue.enqueue).toHaveBeenCalledWith('TRON', 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP');
+
+  describe('deposit inference on label lookup', () => {
+    const DEP = 'TLXZxKcduSDxXQynpoCatnY5S4ET9SNACP';
+    beforeEach(() => {
+      mockTron.fetchAddressLabel.mockResolvedValue({ label: null });
+      mockTron.fetchWalletTransfers.mockResolvedValue({ transfers: [], diag: null, status: 'ok' });
+      mockDeposits.infer.mockResolvedValue(null);
+    });
+
+    it('runs only when asked (graph nodes), and stores what it found', async () => {
+      mockDeposits.infer.mockResolvedValue({ label: 'Binance: deposit (inferred)', entity: 'Binance', share: 1, via: [] });
+      expect((await service.fetchAddressLabel('TRON', DEP)).label).toBeNull();
+      expect(mockDeposits.infer).not.toHaveBeenCalled();
+      expect((await service.fetchAddressLabel('TRON', DEP, { infer: true })).label).toBe('Binance: deposit (inferred)');
+      expect(mockLabels.remember).toHaveBeenCalledWith(DEP, 'Binance: deposit (inferred)', 'inferred');
+    });
+
+    it('is skipped when the registry or the explorer already names the address', async () => {
+      mockTron.fetchAddressLabel.mockResolvedValue({ label: 'Binance-Hot 3' });
+      expect((await service.fetchAddressLabel('TRON', DEP, { infer: true })).label).toBe('Binance-Hot 3');
+      mockLabels.forAddress.mockResolvedValue({ address: DEP, label: 'FixedFloat. User', source: 'okx' });
+      expect((await service.fetchAddressLabel('TRON', DEP, { infer: true })).label).toBe('FixedFloat. User');
+      expect(mockDeposits.infer).not.toHaveBeenCalled();
+    });
+
+    it('TRON only for now, and a miss is not re-analysed right away', async () => {
+      await service.fetchAddressLabel('ETH', '0x1111111111111111111111111111111111111111', { infer: true });
+      expect(mockDeposits.infer).not.toHaveBeenCalled();
+      await service.fetchAddressLabel('TRON', DEP, { infer: true });
+      await service.fetchAddressLabel('TRON', DEP, { infer: true });
+      expect(mockDeposits.infer).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('bridgeResolve dispatches via the bridge hub', () => {

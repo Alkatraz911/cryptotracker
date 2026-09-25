@@ -305,6 +305,7 @@ export const EN: Record<string, string> = {
   "аккаунты": "accounts",
   "в граф": "to graph",
   "вручную": "by hand",
+  "вычислено": "inferred",
   "все": "all",
   "все активы": "all assets",
   "входящие": "incoming",

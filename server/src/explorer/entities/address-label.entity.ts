@@ -3,7 +3,8 @@ import { Column, CreateDateColumn, Entity, PrimaryColumn, UpdateDateColumn } fro
 // Where a label came from. Human-entered sources ('manual' — typed in the app,
 // 'okx' — copied from the OKX/OKLink explorer) outrank explorer-API tags
 // ('tronscan', 'etherscan', …) and are never overwritten by them.
-export type LabelSource = 'manual' | 'okx' | 'tronscan' | 'etherscan' | 'solscan' | 'rpc' | string;
+// 'inferred' — worked out from on-chain behaviour (DepositInferenceService).
+export type LabelSource = 'manual' | 'okx' | 'tronscan' | 'etherscan' | 'solscan' | 'rpc' | 'inferred' | string;
 
 // Shared registry of address → entity label ("Binance Hot Wallet", "FixedFloat.
 // User"). One row per address: EVM addresses are chain-agnostic and stored

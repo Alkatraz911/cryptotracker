@@ -7,13 +7,15 @@ import { DebridgeProvider } from './providers/debridge.provider';
 import { PriceProvider } from './providers/price.provider';
 import { BridgeRegistryService } from './bridge-registry.service';
 import { LabelRegistryService } from './label-registry.service';
-import { OkxLabelQueueService } from './okx-label-queue.service';
+import { DepositInferenceService, INFERRED, KnownLabel } from './deposit-inference.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService, SourceStatus } from './provider-health.service';
 
 const NATIVE_ASSETS = new Set(['ETH', 'BNB', 'POL', 'TRX', 'SOL']);
 const MAX_TRANSFERS = 2000;     // practical ceiling for "full history" in one load
 const MAX_LABELS = 20;          // cap address-tag lookups per request (they're slow/heavy)
+const INFER_NETWORKS = new Set(['TRON']); // deposit rule verified on TRON only (see DepositInferenceService)
+const INFER_MISS_TTL = 6 * 3600_000;     // don't re-analyse an address that didn't match for this long
 const TRACE_SUPPORTED = new Set(['ETH', 'BSC', 'POLYGON', 'ARBITRUM', 'BASE', 'TRON', 'SOLANA']);
 const walletKey = (net: string, addr: string) =>
   /^0x[0-9a-fA-F]{40}$/.test(addr) ? `EVM:${addr.toLowerCase()}` : `${net}:${addr}`;
@@ -35,7 +37,7 @@ export class ExplorerService {
     private readonly price: PriceProvider,
     private readonly bridgeRegistry: BridgeRegistryService,
     private readonly labels: LabelRegistryService,
-    private readonly okxQueue: OkxLabelQueueService,
+    private readonly deposits: DepositInferenceService,
     private readonly bridges: BridgeHubService,
     private readonly health: ProviderHealthService,
   ) {}
@@ -86,7 +88,10 @@ export class ExplorerService {
     }
   }
 
-  async fetchAddressLabel(network: string, address: string): Promise<{ label: string | null; bridge?: string }> {
+  // `infer`: when nothing names the address, work out from its own history
+  // whether it is an exchange deposit (costs a history fetch or three, so only
+  // for addresses put on a graph — not for every counterparty in a table).
+  async fetchAddressLabel(network: string, address: string, opts: { infer?: boolean } = {}): Promise<{ label: string | null; bridge?: string }> {
     // Known bridge makers/contracts win over the explorer's tag, so bridge
     // wallets are labelled even when the explorer has none — and we surface the
     // bridge id so the client can show the cross-chain button precisely.
@@ -96,19 +101,49 @@ export class ExplorerService {
     // copied from OKX (whose tags can't be fetched server-side), plus tags the
     // explorers gave us before. One DB lookup, no network.
     const known2 = await this.labels.forAddress(address);
-    // OKX has the richest tags but only a browser can read them — queue the
-    // address for the userscript (no-op when a person/OKX already labelled it).
-    this.okxQueue.enqueue(network, address);
     if (known2) return { label: known2.label };
+    const tag = await this.explorerTag(network, address);
+    if (tag || !opts.infer) return { label: tag };
+    return { label: await this.inferDeposit(network, address) };
+  }
+
+  // The chain explorer's own tag (TronScan/Etherscan/Solscan), kept in the
+  // registry so the next lookup (any user, any case) is instant.
+  private async explorerTag(network: string, address: string): Promise<string | null> {
     let r: { label: string | null } = { label: null };
     try {
       if (network === 'TRON') r = await this.tron.fetchAddressLabel(address);
       else if (network === 'SOLANA') r = await this.solana.fetchAddressLabel(address);
       else r = await this.evm.fetchAddressLabel(network, address);
-    } catch { return { label: null }; }
-    // Keep explorer tags so the next lookup (any user, any case) is instant.
+    } catch { return null; }
     if (r.label) this.labels.remember(address, r.label, network === 'TRON' ? 'tronscan' : network === 'SOLANA' ? 'solscan' : 'etherscan');
-    return r;
+    return r.label;
+  }
+
+  private inferMisses = new Map<string, number>();
+  private async inferDeposit(network: string, address: string): Promise<string | null> {
+    if (!INFER_NETWORKS.has(network)) return null;
+    const key = walletKey(network, address);
+    if (Date.now() - (this.inferMisses.get(key) ?? 0) < INFER_MISS_TTL) return null;
+    const history = (a: string) => this.fetchWalletTransfers(network, a, { native: false, token: true, limit: 200, labels: false }).then((r) => r.transfers);
+    try {
+      const hit = await this.deposits.infer(address, await history(address), NATIVE_ASSETS, {
+        labelOf: async (a): Promise<KnownLabel | null> => {
+          const reg = await this.labels.forAddress(a);
+          if (reg) return { label: reg.label, source: reg.source };
+          const tag = await this.explorerTag(network, a);
+          return tag ? { label: tag, source: 'explorer' } : null;
+        },
+        transfersOf: history,
+        remember: (a, label) => this.labels.remember(a, label, INFERRED),
+      });
+      if (!hit) { this.inferMisses.set(key, Date.now()); return null; }
+      this.labels.remember(address, hit.label, INFERRED);
+      return hit.label;
+    } catch (e) {
+      this.logger.warn(`inferDeposit ${address}: ${(e as Error)?.message}`);
+      return null;
+    }
   }
 
   // On-chain holdings for a wallet: the native gas token + ERC-20/TRC-20/SPL
@@ -327,16 +362,6 @@ export class ExplorerService {
       if (counterparties.size >= MAX_LABELS) break;
     }
     if (!counterparties.size) return;
-
-    // Give the OKX queue a transaction for every address here — the OKX tx
-    // page is where the userscript reads their tags.
-    const txOf = new Map<string, string>();
-    for (const t of transfers) {
-      for (const a of [t.from, t.to]) if (a && t.hash && !txOf.has(a.toLowerCase())) txOf.set(a.toLowerCase(), t.hash);
-    }
-    for (const a of [wallet, ...[...counterparties].slice(0, MAX_LABELS)]) {
-      this.okxQueue.enqueue(network, a, txOf.get(a.toLowerCase()) ?? null);
-    }
 
     const labels = new Map<string, string | null>();
     await Promise.all([...counterparties].slice(0, MAX_LABELS).map(async (addr) => {
