@@ -6,16 +6,22 @@ const comparable = (address: string, network: string) => {
 };
 
 export function markPoisoning(transfers: TransferItem[], wallet: string): void {
-  const real = new Set<string>();
+  const realByNetwork = new Map<string, Set<string>>();
   const me = wallet.toLowerCase();
   for (const t of transfers) {
     if ((t.usdValue ?? 0) < 10) continue;
     const cp = t.from?.toLowerCase() === me ? t.to : t.from;
-    if (cp) real.add(cp);
+    if (cp) {
+      const real = realByNetwork.get(t.network) ?? new Set<string>();
+      real.add(cp);
+      realByNetwork.set(t.network, real);
+    }
   }
   for (const t of transfers) {
     if ((t.usdValue ?? 0) >= 1) continue;
     const cp = t.from?.toLowerCase() === me ? t.to : t.from;
+    const real = realByNetwork.get(t.network);
+    if (!real) continue;
     if (!cp || real.has(cp)) continue;
     const c = comparable(cp, t.network);
     if (c.length < 8) continue;
