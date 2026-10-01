@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ChainDataService } from './chaindata.service';
 import { ExplorerService } from '../explorer/explorer.service';
+import { TokenRegistryService } from '../explorer/token-registry.service';
 import { Wallet } from './entities/wallet.entity';
 import { Transaction } from './entities/transaction.entity';
 
@@ -11,6 +12,7 @@ describe('ChainDataService', () => {
   const walletsRepo = { findOneBy: jest.fn(), upsert: jest.fn() };
   const txsRepo = { createQueryBuilder: jest.fn(), upsert: jest.fn(), create: jest.fn((x) => x) };
   const explorer = { fetchWalletTransfers: jest.fn() };
+  const tokens = { observe: jest.fn().mockResolvedValue(undefined), annotate: jest.fn(async (items) => items) };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -34,6 +36,7 @@ describe('ChainDataService', () => {
         { provide: getRepositoryToken(Wallet), useValue: walletsRepo },
         { provide: getRepositoryToken(Transaction), useValue: txsRepo },
         { provide: ExplorerService, useValue: explorer },
+        { provide: TokenRegistryService, useValue: tokens },
       ],
     }).compile();
     service = module.get(ChainDataService);

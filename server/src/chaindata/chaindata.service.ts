@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ExplorerService } from '../explorer/explorer.service';
+import { TokenRegistryService } from '../explorer/token-registry.service';
+import { markPoisoning } from '../explorer/poisoning';
 import type { TransferItem } from '../explorer/providers/evm.provider';
 import type { SourceStatus } from '../explorer/provider-health.service';
 import { Wallet } from './entities/wallet.entity';
@@ -26,6 +28,7 @@ export class ChainDataService {
     @InjectRepository(Wallet) private readonly wallets: Repository<Wallet>,
     @InjectRepository(Transaction) private readonly txs: Repository<Transaction>,
     private readonly explorer: ExplorerService,
+    private readonly tokens: TokenRegistryService,
   ) {}
 
   // Serve a wallet's transfers from the shared store, fetching from the explorer
@@ -79,6 +82,7 @@ export class ChainDataService {
       });
       fetchDiag = res.diag;
       fetchStatus = res.status;
+      if (res.transfers.some((t) => t.contract && !t.tokenStatus)) await this.tokens.observe(res.transfers);
       await this.persist(network, res.transfers, res.source ?? null);
       // Record the attempt time regardless of outcome, so a genuinely-empty or
       // persistently-failing wallet is retried at most once per staleness window.
@@ -101,7 +105,10 @@ export class ChainDataService {
     // from a down/drifted source. When we served purely from cache, having rows
     // means the source was 'ok' at load time.
     const status: SourceStatus | undefined = fetchStatus ?? (rows.length ? 'ok' : undefined);
-    return { transfers: rows.map(toTransferItem), diag: rows.length ? null : fetchDiag, status };
+    const transfers = await this.tokens.annotate(rows.map(toTransferItem));
+    for (const t of transfers) if (t.contract && t.tokenStatus !== 'trusted') t.usdValue = undefined;
+    markPoisoning(transfers, addr);
+    return { transfers, diag: rows.length ? null : fetchDiag, status };
   }
 
   private async persist(network: string, transfers: TransferItem[], source: string | null): Promise<void> {
@@ -121,6 +128,7 @@ export class ChainDataService {
         blockTs: t.timestamp ?? null,
         fromAddr, toAddr,
         asset: t.asset ?? null,
+        tokenContract: t.contract ? normAddr(t.contract) : null,
         amount,
         usd: t.usdValue ?? null,
         fromLabel: t.fromLabel ?? null,
@@ -149,6 +157,7 @@ function toTransferItem(t: Transaction): TransferItem {
     to: t.toAddr,
     amount: t.amount ?? undefined,
     asset: t.asset ?? undefined,
+    contract: t.tokenContract ?? undefined,
     usdValue: t.usd ?? undefined,
     timestamp: t.blockTs ?? undefined,
     fromLabel: t.fromLabel ?? undefined,

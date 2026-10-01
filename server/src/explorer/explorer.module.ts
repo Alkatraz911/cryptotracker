@@ -20,15 +20,17 @@ import { LifiAdapter } from './bridges/lifi.adapter';
 import { AcrossAdapter } from './bridges/across.adapter';
 import { ProviderHealthService } from './provider-health.service';
 import { ProviderHealthEntry } from './entities/provider-health.entity';
+import { TokenContract } from './entities/token-contract.entity';
+import { TokenRegistryService } from './token-registry.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry])],
+  imports: [TypeOrmModule.forFeature([BridgeAddress, AddressLabel, ProviderHealthEntry, TokenContract])],
   providers: [
-    ExplorerService, BridgeRegistryService, LabelRegistryService, DepositInferenceService, ProviderHealthService,
+    ExplorerService, BridgeRegistryService, LabelRegistryService, TokenRegistryService, DepositInferenceService, ProviderHealthService,
     EvmProvider, TronProvider, SolanaProvider, OrbiterProvider, DebridgeProvider, PriceProvider,
     BridgeHubService, OrbiterAdapter, DebridgeAdapter, LifiAdapter, AcrossAdapter,
   ],
   controllers: [ExplorerController],
-  exports: [ExplorerService],
+  exports: [ExplorerService, TokenRegistryService],
 })
 export class ExplorerModule {}

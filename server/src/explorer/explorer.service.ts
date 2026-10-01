@@ -10,6 +10,7 @@ import { LabelRegistryService } from './label-registry.service';
 import { DepositInferenceService, INFERRED, KnownLabel } from './deposit-inference.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService, SourceStatus } from './provider-health.service';
+import { TokenRegistryService } from './token-registry.service';
 
 const NATIVE_ASSETS = new Set(['ETH', 'BNB', 'POL', 'TRX', 'SOL']);
 const MAX_TRANSFERS = 2000;     // practical ceiling for "full history" in one load
@@ -40,6 +41,7 @@ export class ExplorerService {
     private readonly deposits: DepositInferenceService,
     private readonly bridges: BridgeHubService,
     private readonly health: ProviderHealthService,
+    private readonly tokens: TokenRegistryService,
   ) {}
 
   // ── Cross-chain bridges (Orbiter + deBridge) ───────────────────────────────
@@ -79,9 +81,15 @@ export class ExplorerService {
 
   async fetchTx(network: string, hash: string): Promise<TransferItem | null> {
     try {
-      if (network === 'TRON') return await this.tron.fetchTx(hash);
-      if (network === 'SOLANA') return await this.solana.fetchTx(hash);
-      return await this.evm.fetchTx(network, hash);
+      const item = network === 'TRON' ? await this.tron.fetchTx(hash)
+        : network === 'SOLANA' ? await this.solana.fetchTx(hash)
+        : await this.evm.fetchTx(network, hash);
+      if (!item) return null;
+      const items = item.transfers?.length ? item.transfers : [item];
+      await this.tokens.observe(items);
+      await this.tokens.annotate(items);
+      if (items !== item.transfers) Object.assign(item, items[0]);
+      return item;
     } catch (e) {
       this.logger.error(`fetchTx ${network} ${hash}: ${(e as Error)?.message}`);
       return null;
@@ -208,10 +216,13 @@ export class ExplorerService {
 
       const transfers = res.transfers
         .filter((t) => t.hash && (t.from || t.to))
-        .filter((t) => { if (NATIVE_ASSETS.has(t.asset || '')) return true; return t.amount != null && !isNaN(t.amount) && t.amount >= 1; })
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .slice(0, o.limit);
 
+      await this.tokens.observe(transfers);
+      await this.tokens.annotate(transfers);
+      // A spoofed symbol must not inherit the real asset's USD price.
+      for (const t of transfers) if (t.tokenStatus !== 'trusted') t.usdValue = undefined;
       await this.enrichUsd(transfers);
       if (opts.labels !== false) await this.enrichLabels(network, address, transfers);
 
@@ -224,7 +235,7 @@ export class ExplorerService {
 
   // Fill usdValue (where the provider didn't) from current token prices.
   private async enrichUsd(transfers: TransferItem[]): Promise<void> {
-    const need = transfers.filter((t) => t.usdValue == null && t.amount != null && t.asset);
+    const need = transfers.filter((t) => t.usdValue == null && t.amount != null && t.asset && t.tokenStatus === 'trusted');
     if (!need.length) return;
     const prices = await this.price.pricesFor([...new Set(need.map((t) => t.asset as string))]);
     for (const t of need) {
@@ -286,6 +297,7 @@ export class ExplorerService {
         const me = node.addr.toLowerCase();
         const mine = res.transfers
           .filter((t) => { const a = direction === 'out' ? t.from : t.to; return a && a.toLowerCase() === me; })
+          .filter((t) => t.tokenStatus !== 'scam')
           .filter((t) => (t.usdValue ?? 0) >= minUsd)
           .sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
 
@@ -356,6 +368,7 @@ export class ExplorerService {
     const self = wallet.toLowerCase();
     const counterparties = new Set<string>();
     for (const t of transfers) {
+      if (t.tokenStatus === 'scam') continue;
       for (const a of [t.from, t.to]) {
         if (a && a.toLowerCase() !== self) counterparties.add(a);
       }

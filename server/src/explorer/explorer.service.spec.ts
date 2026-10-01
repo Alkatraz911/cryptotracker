@@ -11,6 +11,7 @@ import { LabelRegistryService } from './label-registry.service';
 import { DepositInferenceService } from './deposit-inference.service';
 import { BridgeHubService } from './bridges/bridge-hub.service';
 import { ProviderHealthService } from './provider-health.service';
+import { TokenRegistryService } from './token-registry.service';
 
 const mockEvm = { fetchTx: jest.fn(), fetchAddressLabel: jest.fn().mockResolvedValue({ label: null }), fetchWalletTransfers: jest.fn() };
 const mockTron = { fetchTx: jest.fn(), fetchAddressLabel: jest.fn().mockResolvedValue({ label: null }), fetchWalletTransfers: jest.fn() };
@@ -23,6 +24,7 @@ const mockDeposits = { infer: jest.fn().mockResolvedValue(null) };
 const mockBridgeRegistry = { forAddress: jest.fn(), list: jest.fn(), add: jest.fn(), remove: jest.fn() };
 const mockHub = { resolve: jest.fn(), resolveAny: jest.fn(), has: jest.fn(), resolvers: jest.fn() };
 const mockHealth = { record: jest.fn(), snapshot: jest.fn().mockReturnValue([]), degraded: jest.fn().mockReturnValue(false) };
+const mockTokens = { observe: jest.fn().mockResolvedValue(undefined), annotate: jest.fn(async (items) => items) };
 
 describe('ExplorerService', () => {
   let service: ExplorerService;
@@ -45,6 +47,7 @@ describe('ExplorerService', () => {
         { provide: BridgeRegistryService, useValue: mockBridgeRegistry },
         { provide: BridgeHubService, useValue: mockHub },
         { provide: ProviderHealthService, useValue: mockHealth },
+        { provide: TokenRegistryService, useValue: mockTokens },
       ],
     }).compile();
     service = module.get(ExplorerService);
@@ -155,7 +158,7 @@ describe('ExplorerService', () => {
     });
   });
 
-  it('filters transfers with amount < 1 for non-native assets', async () => {
+  it('keeps small token transfers for scam and poisoning analysis', async () => {
     mockEvm.fetchWalletTransfers.mockResolvedValue({
       transfers: [
         { network: 'ETH', hash: '1', from: 'a', to: 'b', amount: 0.001, asset: 'SHIB', timestamp: 1000 },
@@ -164,8 +167,9 @@ describe('ExplorerService', () => {
       diag: null,
     });
     const result = await service.fetchWalletTransfers('ETH', '0xaddr', { native: true, token: true, limit: 50 });
-    expect(result.transfers).toHaveLength(1);
+    expect(result.transfers).toHaveLength(2);
     expect(result.transfers[0].hash).toBe('2');
+    expect(result.transfers[1].hash).toBe('1');
   });
 
   it('records source health and threads a parse-drift status through', async () => {
