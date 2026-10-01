@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CryptoTracker — метки из OKX Explorer
 // @namespace    cryptotracker
-// @version      3.0.0
+// @version      3.1.0
 // @description  Сохраняет в общий реестр меток CryptoTracker теги адресов, которые OKX Explorer показывает на открытой вами странице транзакции или адреса.
 // @match        https://web3.okx.com/*explorer/*
 // @match        https://www.oklink.com/*
@@ -36,6 +36,9 @@
     if (s.length < 2 || s.length > 120 || SKIP_TAGS.test(s)) return null;
     if (ADDR_RE.test(s) || /^0x[0-9a-fA-F]{64}$/.test(s)) return null; // a bare address/hash is not a tag
     if (/^[\d\s.,:#-]+$/.test(s)) return null;                        // "#58436066" — a block/nonce, not a tag
+    // /address-tags/support returns encrypted Base64 fields. Only the label
+    // rendered by OKX in the page is useful; never save ciphertext as a tag.
+    if (/[=+/]/.test(s) && /^(?:[A-Za-z0-9+/]{16,}={0,2})(?:\s*[:.]\s*[A-Za-z0-9+/]{16,}={0,2})*$/.test(s)) return null;
     return s;
   };
   // Elements that name an address: links to /address/…, or a leaf whose whole
@@ -53,13 +56,13 @@
     }
     return out;
   }
-  // Tag pills. OKX today: <div class="tag-77uC6 …"><div data-testid="okd-popup" …>
-  // <div class="text-ellipsis"># Exchange: FixedFloat. User</div>. The hash
-  // suffix of the class changes with every OKX deploy, so match the prefix;
-  // fall back to "short text starting with #".
+  // Tag pills can move between OKX deployments. Read their visible text (or
+  // accessible tooltip) after the site has decrypted its API response.
   function tagNodes(doc) {
     const out = new Set();
-    for (const el of doc.querySelectorAll('[class^="tag-"],[class*=" tag-"]')) out.add(el.querySelector('.text-ellipsis') || el);
+    for (const el of doc.querySelectorAll('[class^="tag-"],[class*=" tag-"],[class*="entity-tag"],[class*="entityTag"],[data-testid*="tag"],[data-testid="okd-popup"]')) {
+      out.add(el.querySelector('.text-ellipsis,[class*="text-ellipsis"]') || el);
+    }
     for (const el of doc.querySelectorAll('span,div')) {
       if (el.children.length > 2) continue;
       const t = (el.textContent || '').trim();
@@ -75,7 +78,10 @@
   // receiver block), so the search stops there.
   function scanTags(doc, pageAddr) {
     const addrs = addressNodes(doc);
-    const tags = tagNodes(doc).map((el) => ({ el, tag: cleanTag(el.textContent) })).filter((t) => t.tag);
+    const tags = tagNodes(doc).map((el) => ({
+      el,
+      tag: cleanTag(el.textContent) || cleanTag(el.getAttribute('aria-label')) || cleanTag(el.getAttribute('title')),
+    })).filter((t) => t.tag);
     const found = new Map();
     for (const { el, addr } of addrs) {
       if (found.has(addr)) continue;
@@ -83,14 +89,15 @@
       for (let up = 0; up < 10 && node.parentElement && node !== doc.body; up++) {
         node = node.parentElement;
         if (addrs.some((o) => !same(o.addr, addr) && node.contains(o.el))) break;
-        const t = tags.find((x) => node.contains(x.el));
-        if (t) { found.set(addr, t.tag); break; }
+        const nearby = tags.filter((x) => node.contains(x.el));
+        // A shared container with several tags cannot identify their owners.
+        if (nearby.length === 1) { found.set(addr, nearby[0].tag); break; }
       }
     }
     // The address page itself: a pill outside tables belongs to the URL's address.
     if (pageAddr && ![...found.keys()].some((a) => same(a, pageAddr))) {
-      const t = tags.find((x) => !x.el.closest('table,tr,[role="row"]') && ![...found.values()].includes(x.tag));
-      if (t) found.set(pageAddr, t.tag);
+      const pageTags = tags.filter((x) => !x.el.closest('table,tr,[role="row"]') && ![...found.values()].includes(x.tag));
+      if (pageTags.length === 1) found.set(pageAddr, pageTags[0].tag);
     }
     return found;
   }
