@@ -7,6 +7,7 @@ import { transfersSubgraph, bridgeSubgraph, annotationsForNodeView } from "../li
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
 import { ALL_NETWORKS, networkColor, okxAddressUrl, txUrl, walletNodeId, type Network } from "../lib/explorers";
 import { nodeIsRisky } from "../lib/tags";
+import { assetKey, readShowScam, writeShowScam } from "../lib/scam";
 import type { AnnotationKind, BuiltGraph, GAnnotation, GEdge, GNode } from "../lib/graph";
 
 interface Props {
@@ -76,6 +77,7 @@ function balanceTitle(bal?: WalletBalance | null): string {
 }
 
 export default function SidePanel(props: Props) {
+  const [showScam, setShowScam] = useState(readShowScam);
   const { node, graph, onClose, onAdd, onFocus, onPatchNode, cache, onCacheNet, chat, onChatChange } = props;
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -194,10 +196,11 @@ export default function SidePanel(props: Props) {
   const cur = byNet[activeNet];
   const curBal = balByNet[activeNet];
   const txs = cur ? cur.transfers : null;
+  const visibleTxs = useMemo(() => txs?.filter((t) => showScam || t.tokenStatus !== "scam") ?? null, [txs, showScam]);
   const txLoading = isWallet && (cur ? cur.loading : true);
   const balLoading = isWallet && (curBal ? curBal.loading : true);
-  const sent = useMemo(() => (txs && addr ? txs.filter((t) => t.from?.toLowerCase() === addr) : []), [txs, addr]);
-  const recv = useMemo(() => (txs && addr ? txs.filter((t) => t.to?.toLowerCase() === addr) : []), [txs, addr]);
+  const sent = useMemo(() => (visibleTxs && addr ? visibleTxs.filter((t) => t.from?.toLowerCase() === addr) : []), [visibleTxs, addr]);
+  const recv = useMemo(() => (visibleTxs && addr ? visibleTxs.filter((t) => t.to?.toLowerCase() === addr) : []), [visibleTxs, addr]);
   const sentUsd = sumUsd(sent), recvUsd = sumUsd(recv);
 
   return (
@@ -270,7 +273,7 @@ export default function SidePanel(props: Props) {
 
       <div className="sp-tabs">
         <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>{tr("Обзор")}</button>
-        {isWallet && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>{tr("Транзакции")}{txs ? ` (${txs.length})` : ""}</button>}
+        {isWallet && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>{tr("Транзакции")}{visibleTxs ? ` (${visibleTxs.length})` : ""}</button>}
         {isAgg && <button className={tab === "txs" ? "active" : ""} onClick={() => setTab("txs")}>{tr("Транзакции (")}{node.members?.length ?? 0})</button>}
         {isWallet && <button className={tab === "links" ? "active" : ""} onClick={() => setTab("links")}>{tr("Связи")}</button>}
         <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>{tr("ИИ-чат")}{chat.length ? ` (${chat.filter((m) => m.role === "user").length || "•"})` : ""}</button>
@@ -283,6 +286,8 @@ export default function SidePanel(props: Props) {
             activeNet={activeNet}
             onNet={selectNet}
             txs={txs}
+            showScam={showScam}
+            onShowScam={(value) => { setShowScam(value); writeShowScam(value); }}
             busy={!!cur?.loading}
             err={cur?.err ?? null}
             diag={cur?.diag ?? null}
@@ -296,7 +301,7 @@ export default function SidePanel(props: Props) {
         )}
         {tab === "txs" && isAgg && <AggTxTab node={node} />}
         {tab === "links" && isWallet && (
-          <LinksTab txs={txs} addr={addr} onAdd={onAdd} onFocus={onFocus} labelByAddr={labelByAddr} />
+          <LinksTab txs={visibleTxs} addr={addr} onAdd={onAdd} onFocus={onFocus} labelByAddr={labelByAddr} />
         )}
         {tab === "ai" && (
           <Suspense fallback={<div className="ai-thinking">{tr("Загрузка ИИ-чата…")}</div>}>
@@ -658,11 +663,13 @@ function AggTxTab({ node }: { node: GNode }) {
 }
 
 function TxTab({
-  activeNet, onNet, txs, busy, err, diag, status, addr, onLoadWindow, onRefresh, onAddSelected, labelByAddr,
+  activeNet, onNet, txs, showScam, onShowScam, busy, err, diag, status, addr, onLoadWindow, onRefresh, onAddSelected, labelByAddr,
 }: {
   activeNet: Network;
   onNet: (net: Network) => void;
   txs: Transfer[] | null; // full stored history (drives the default view + metrics)
+  showScam: boolean;
+  onShowScam: (value: boolean) => void;
   busy: boolean;
   err: string | null;
   diag: string | null;
@@ -725,18 +732,20 @@ function TxTab({
   const source = hasRange ? (windowed ?? []) : (txs ?? []);
   const loading = busy || winBusy;
 
-  const assets = useMemo(() => [...new Set(source.map((t) => t.asset).filter(Boolean))] as string[], [source]);
+  const visibleSource = useMemo(() => source.filter((t) => showScam || t.tokenStatus !== "scam"), [source, showScam]);
+  const scamCount = source.length - source.filter((t) => t.tokenStatus !== "scam").length;
+  const assets = useMemo(() => [...new Map(visibleSource.filter((t) => !!t.asset).map((t) => [assetKey(t), t])).entries()], [visibleSource]);
   useEffect(() => { setSel(new Set()); }, [source]);
 
   const filtered = useMemo(() => {
-    let list = source.map((t, i) => ({ t, i }));
+    let list = source.map((t, i) => ({ t, i })).filter(({ t }) => showScam || t.tokenStatus !== "scam");
     if (!(native && token)) list = list.filter((x) => {
       const n = isNativeAsset(x.t.asset);
       if (native) return n;
       if (token) return !n;
       return false; // both unchecked → nothing
     });
-    if (asset) list = list.filter((x) => x.t.asset === asset);
+    if (asset) list = list.filter((x) => assetKey(x.t) === asset);
     if (dir && addr) list = list.filter((x) =>
       dir === "out" ? x.t.from?.toLowerCase() === addr : x.t.to?.toLowerCase() === addr);
     list.sort((a, b) => {
@@ -745,7 +754,7 @@ function TxTab({
       return sortDir === "desc" ? vb - va : va - vb;
     });
     return list;
-  }, [source, native, token, asset, dir, addr, sortKey, sortDir]);
+  }, [source, showScam, native, token, asset, dir, addr, sortKey, sortDir]);
 
   // Virtual scroll: render only the rows visible in the scroll container, so the
   // full (up to 2000-row) history scrolls smoothly without paging.
@@ -793,7 +802,7 @@ function TxTab({
   function toggle(i: number) {
     setSel((p) => { const n = new Set(p); n.has(i) ? n.delete(i) : n.add(i); return n; });
   }
-  const selTransfers = () => source.filter((_, i) => sel.has(i)).map((t) => withKnownLabels(t, labelByAddr, fetched));
+  const selTransfers = () => source.filter((t, i) => sel.has(i) && (showScam || t.tokenStatus !== "scam")).map((t) => withKnownLabels(t, labelByAddr, fetched));
 
   return (
     <div className="tx-tab">
@@ -808,6 +817,7 @@ function TxTab({
         <div className="ltchecks">
           <label><input type="checkbox" checked={native} onChange={(e) => setNative(e.target.checked)} /> {tr("Нативные")}</label>
           <label><input type="checkbox" checked={token} onChange={(e) => setToken(e.target.checked)} /> {tr("Токены")}</label>
+          <label><input type="checkbox" checked={showScam} onChange={(e) => { onShowScam(e.target.checked); setSel(new Set()); setAsset(""); }} /> {tr("показать скам ({n})", { n: scamCount })}</label>
         </div>
         <div className="tx-daterow">
           <span className="tx-date-lbl">{tr("период:")}</span>
@@ -845,7 +855,7 @@ function TxTab({
               </select>
               <select value={asset} onChange={(e) => setAsset(e.target.value)}>
                 <option value="">{tr("все активы")}</option>
-                {assets.map((a) => <option key={a} value={a}>{a}</option>)}
+                {assets.map(([key, t]) => <option key={key} value={key}>{t.asset}{t.tokenStatus === "scam" ? ` (${tr("скам")})` : ""}{t.contract ? ` · ${t.contract.slice(0, 6)}…` : ""}</option>)}
               </select>
             </div>
             <span>{filtered.length} {tr("из")} {source.length}{hasRange ? tr(" за период") : ""}{sel.size ? ` · ${tr("выбрано {n}", { n: sel.size })}` : ""}</span>
@@ -873,7 +883,7 @@ function TxTab({
                   const txHref = t.hash ? txUrl(t.network as Network, t.hash) : null;
                   const prov = tr("источник: {source}\nзагружено: {when}", { source: t.source ?? "—", when: t.fetchedAt ? fmtDate(t.fetchedAt) : "—" });
                   return (
-                    <tr key={i} className={`${sel.has(i) ? "sel" : ""}${cpLabel ? " tagged" : ""}`} onClick={() => toggle(i)}>
+                    <tr key={i} className={`${sel.has(i) ? "sel" : ""}${cpLabel ? " tagged" : ""}${t.tokenStatus === "scam" ? " scam-row" : ""}`} onClick={() => toggle(i)}>
                       <td><input type="checkbox" checked={sel.has(i)} onChange={() => toggle(i)} onClick={(e) => e.stopPropagation()} /></td>
                       <td className="tdate" title={prov}>
                         {fmtDate(t.timestamp)}
@@ -884,9 +894,10 @@ function TxTab({
                         <span className="taddr">
                           {cpLabel ? <span className="tagchip" title={`${cpLabel}\n${cpAddr ?? ""}`}>{cpLabel}</span> : null}
                           <span className="mono">{short(cpAddr)}</span>
+                          {t.poisoning && <span title={tr("похоже на отравление адреса: имитирует {address}", { address: t.poisoning.lookalikeOf })}>⚠</span>}
                         </span>
                       </td>
-                      <td className="num tamt">{fmtAmt(t.amount)} {t.asset ?? ""}</td>
+                      <td className="num tamt">{fmtAmt(t.amount)} {t.asset ?? ""}{t.tokenStatus === "scam" && <span className="scam-badge" title={t.tokenReason ?? ""}>{tr("скам")}</span>}</td>
                       <td className="num tusd">{fmtUsd(t.usdValue)}</td>
                     </tr>
                   );

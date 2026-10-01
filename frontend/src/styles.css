@@ -985,3 +985,6 @@ button.ghost-danger:hover { background: var(--error-bg); border-color: var(--dan
 .fb-ctx { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 11px; }
 .fb-ctx dt { color: var(--text-muted); }
 .fb-ctx dd { margin: 0; color: var(--text-soft); word-break: break-all; }
+.scam-row { opacity: .54; }
+.scam-row:hover { opacity: .8; }
+.scam-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border: 1px solid #b75b61; border-radius: 4px; color: #e9898e; font-size: 10px; font-weight: 700; vertical-align: middle; }

@@ -71,12 +71,14 @@ export interface Project extends ProjectMeta {
 }
 export interface TxTransfer {
   from: string; to: string; amount: number; asset: string;
+  contract?: string | null; tokenName?: string | null; tokenStatus?: TokenStatus; tokenReason?: string | null;
 }
 
 export interface TxData {
   network: string; hash: string;
   from: string | null; to: string | null;
   amount?: number; asset?: string; timestamp?: number;
+  contract?: string | null; tokenName?: string | null; tokenStatus?: TokenStatus; tokenReason?: string | null;
   transfers?: TxTransfer[];
 }
 
@@ -176,6 +178,13 @@ export const store = {
     req<{ imported: number }>("/explorer/labels/import", { method: "POST", body: JSON.stringify({ entries }) }),
   removeLabel: (address: string) =>
     req<{ ok: boolean }>(`/explorer/labels/${encodeURIComponent(address)}`, { method: "DELETE" }),
+
+  listTokens: (filters: { network?: string; status?: TokenStatus; q?: string } = {}) =>
+    req<TokenContractEntry[]>(`/explorer/tokens?${new URLSearchParams(Object.entries(filters).filter(([, v]) => !!v) as [string, string][]).toString()}`),
+  setTokenStatus: (entry: TokenStatusChange) =>
+    req<TokenContractEntry>("/explorer/tokens", { method: "PATCH", body: JSON.stringify(entry) }),
+  importTokens: (entries: TokenStatusChange[]) =>
+    req<{ imported: number }>("/explorer/tokens/import", { method: "POST", body: JSON.stringify({ entries }) }),
 
   // ── Admin: users ─────────────────────────────────────────────────────────
   listUsers: () => req<AdminUser[]>("/admin/users"),
@@ -328,12 +337,24 @@ export interface Transfer {
   network: string; hash: string;
   from: string | null; to: string | null;
   amount?: number; asset?: string; timestamp?: number;
+  contract?: string | null; tokenName?: string | null;
+  tokenStatus?: TokenStatus; tokenReason?: string | null;
+  poisoning?: { lookalikeOf: string };
   usdValue?: number;
   fromLabel?: string | null;
   toLabel?: string | null;
   source?: string | null;    // provenance: data source this fact came from
   fetchedAt?: number | null;  // provenance: when it was pulled into the store (ms)
 }
+
+export type TokenStatus = "trusted" | "scam" | "unknown";
+export interface TokenContractEntry {
+  network: string; contract: string; symbol: string | null; name: string | null;
+  status: TokenStatus; source: "coingecko" | "heuristic" | "admin" | "seen";
+  reason: string | null; coingeckoId: string | null; seenCount: number;
+  firstSeen: string; lastSeen: string; updatedBy: string | null; updatedAt: string;
+}
+export interface TokenStatusChange { network: string; contract: string; status: TokenStatus; reason?: string }
 
 export interface WalletHolding { asset: string; amount: number; usdValue: number | null; }
 export interface WalletBalance {

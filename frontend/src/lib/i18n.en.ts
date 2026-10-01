@@ -417,3 +417,23 @@ export const EN: Record<string, string> = {
   "OpenAI-совместимый провайдер: задайте OPENAI_BASE_URL (напр. http://localhost:1234/v1).": "OpenAI-compatible provider: set OPENAI_BASE_URL (e.g. http://localhost:1234/v1).",
   "OpenRouter: выберите модель в списке (или задайте AI_MODEL).": "OpenRouter: pick a model from the list (or set AI_MODEL).",
 };
+
+Object.assign(EN, {
+  "показать скам ({n})": "show scam ({n})",
+  "скам": "scam",
+  "похоже на отравление адреса: имитирует {address}": "possible address poisoning: imitates {address}",
+  "Все сети": "All networks",
+  "Все статусы": "All statuses",
+  "доверенный": "trusted",
+  "неизвестный": "unknown",
+  "Поиск по токену или контракту": "Search token or contract",
+  "Применить к выбранным ({n})": "Apply to selected ({n})",
+  "Символ": "Symbol",
+  "Название": "Name",
+  "Контракт": "Contract",
+  "Статус": "Status",
+  "Источник": "Source",
+  "Причина": "Reason",
+  "Встречался": "Seen",
+  "Последний раз": "Last seen",
+});
