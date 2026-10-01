@@ -1,8 +1,9 @@
 import { tr, locale } from "../lib/i18n";
 import { Fragment, useEffect, useState } from "react";
-import { store, type AddressLabelEntry, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type User } from "../lib/store";
+import { store, type AddressLabelEntry, type AdminUser, type Analytics, type BridgeAddress, type FeedbackEntry, type FeedbackStatus, type TokenContractEntry, type TokenStatus, type TokenStatusChange, type User } from "../lib/store";
+import { addressUrl, type Network } from "../lib/explorers";
 
-type Tab = "analytics" | "users" | "bridges" | "labels" | "feedback";
+type Tab = "analytics" | "users" | "bridges" | "labels" | "tokens" | "feedback";
 
 export default function AdminPage({ user, onClose }: { user: User; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>("analytics");
@@ -18,6 +19,7 @@ export default function AdminPage({ user, onClose }: { user: User; onClose: () =
         <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>{tr("Пользователи")}</button>
         <button className={tab === "bridges" ? "active" : ""} onClick={() => setTab("bridges")}>{tr("Мосты")}</button>
         <button className={tab === "labels" ? "active" : ""} onClick={() => setTab("labels")}>{tr("Метки")}</button>
+        <button className={tab === "tokens" ? "active" : ""} onClick={() => setTab("tokens")}>{tr("Токены")}</button>
         <button className={tab === "feedback" ? "active" : ""} onClick={() => setTab("feedback")}>{tr("Обратная связь")}</button>
       </nav>
       <div className="admin-page-body">
@@ -25,6 +27,7 @@ export default function AdminPage({ user, onClose }: { user: User; onClose: () =
         {tab === "users" && <UsersTab selfId={user.id} />}
         {tab === "bridges" && <BridgesTab />}
         {tab === "labels" && <LabelsTab />}
+        {tab === "tokens" && <TokensTab />}
         {tab === "feedback" && <FeedbackTab />}
       </div>
     </div>
@@ -248,6 +251,73 @@ function parseLabelLines(text: string): { address: string; label: string }[] {
     const m = l.match(/^(\S+)[\t,;]+\s*(.+)$/);
     return m ? { address: m[1], label: m[2].trim() } : null;
   }).filter((x): x is { address: string; label: string } => !!x && x.label.length > 0);
+}
+
+function TokensTab() {
+  const [rows, setRows] = useState<TokenContractEntry[]>([]);
+  const [network, setNetwork] = useState("");
+  const [status, setStatus] = useState<"" | TokenStatus>("");
+  const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState<TokenStatus>("scam");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    try { setRows(await store.listTokens({ network, status: status || undefined, q })); setError(null); }
+    catch (e: any) { setError(e.message ?? String(e)); }
+  }
+  useEffect(() => { void load(); }, [network, status, q]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function update(entries: TokenStatusChange[]) {
+    if (!entries.length) return;
+    setBusy(true); setError(null);
+    try {
+      if (entries.length === 1) await store.setTokenStatus(entries[0]);
+      else await store.importTokens(entries);
+      setSelected(new Set());
+      await load();
+    } catch (e: any) { setError(e.message ?? String(e)); }
+    finally { setBusy(false); }
+  }
+  const key = (r: TokenContractEntry) => `${r.network}:${r.contract}`;
+  const selectedRows = rows.filter((r) => selected.has(key(r)));
+
+  return <div className="admin-section">
+    <div className="admin-form">
+      <select value={network} onChange={(e) => setNetwork(e.target.value)}>
+        <option value="">{tr("Все сети")}</option>
+        {["SOLANA", "ETH", "BSC", "POLYGON", "ARBITRUM", "BASE", "TRON"].map((n) => <option key={n}>{n}</option>)}
+      </select>
+      <select value={status} onChange={(e) => setStatus(e.target.value as "" | TokenStatus)}>
+        <option value="">{tr("Все статусы")}</option>
+        <option value="trusted">{tr("доверенный")}</option><option value="scam">{tr("скам")}</option><option value="unknown">{tr("неизвестный")}</option>
+      </select>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr("Поиск по токену или контракту")} />
+    </div>
+    {error && <div className="error">{error}</div>}
+    <div className="admin-form">
+      <button disabled={busy || !rows.length} onClick={() => setSelected(new Set(rows.map(key)))}>{tr("Выбрать все")}</button>
+      <button disabled={busy || !selected.size} onClick={() => setSelected(new Set())}>{tr("Снять все")}</button>
+      <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value as TokenStatus)}>
+        <option value="scam">{tr("скам")}</option><option value="trusted">{tr("доверенный")}</option><option value="unknown">{tr("неизвестный")}</option>
+      </select>
+      <button className="primary" disabled={busy || !selectedRows.length} onClick={() => update(selectedRows.map((r) => ({ network: r.network, contract: r.contract, status: bulkStatus })))}>{tr("Применить к выбранным ({n})", { n: selectedRows.length })}</button>
+    </div>
+    <table className="admin-table">
+      <thead><tr><th></th><th>{tr("Сеть")}</th><th>{tr("Символ")}</th><th>{tr("Название")}</th><th>{tr("Контракт")}</th><th>{tr("Статус")}</th><th>{tr("Источник")}</th><th>{tr("Причина")}</th><th>{tr("Встречался")}</th><th>{tr("Последний раз")}</th></tr></thead>
+      <tbody>{rows.map((r) => <tr key={key(r)}>
+        <td><input type="checkbox" checked={selected.has(key(r))} onChange={(e) => setSelected((old) => { const next = new Set(old); e.target.checked ? next.add(key(r)) : next.delete(key(r)); return next; })} /></td>
+        <td>{r.network}</td><td>{r.symbol ?? "—"}</td><td>{r.name ?? "—"}</td>
+        <td className="mono admin-addr"><a href={addressUrl(r.network as Network, r.contract) ?? "#"} target="_blank" rel="noopener noreferrer" title={r.contract}>{r.contract}</a></td>
+        <td><select value={r.status} disabled={busy} onChange={(e) => update([{ network: r.network, contract: r.contract, status: e.target.value as TokenStatus, reason: r.reason ?? undefined }])}>
+          <option value="trusted">{tr("доверенный")}</option><option value="scam">{tr("скам")}</option><option value="unknown">{tr("неизвестный")}</option>
+        </select></td>
+        <td>{r.source}</td><td><input key={`${key(r)}:${r.updatedAt}`} defaultValue={r.reason ?? ""} placeholder={tr("Причина")} disabled={busy}
+          onBlur={(e) => { const reason = e.target.value.trim(); if (reason !== (r.reason ?? "")) void update([{ network: r.network, contract: r.contract, status: r.status, reason }]); }} /></td><td>{r.seenCount}</td><td>{new Date(r.lastSeen).toLocaleString(locale())}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
 }
 
 function LabelsTab() {

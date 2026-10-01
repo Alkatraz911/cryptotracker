@@ -65,6 +65,7 @@ export interface WalletTransfersResult {
 @Injectable()
 export class EvmProvider {
   private readonly logger = new Logger(EvmProvider.name);
+  private readonly tokenNames = new Map<string, string | null>();
   private readonly key: () => string;
   private readonly nodeRealKey: () => string;
 
@@ -109,6 +110,22 @@ export class EvmProvider {
     try {
       return Buffer.from(h.slice(128, 128 + len * 2), 'hex').toString('utf8').replace(/\0/g, '').trim() || null;
     } catch { return null; }
+  }
+
+  private async fillTokenNames(network: string, transfers: TransferItem[]): Promise<void> {
+    const rpc = PUBLIC_RPC[network];
+    if (!rpc) return;
+    const missing = [...new Set(transfers.filter((t) => t.contract && !t.tokenName && /^0x[0-9a-f]{40}$/i.test(t.contract)).map((t) => t.contract!))]
+      .filter((contract) => !this.tokenNames.has(contract));
+    // Bound remote work for a large wallet while preserving the transfer rows.
+    const deadline = Date.now() + 8_000;
+    for (let i = 0; i < missing.length && Date.now() < deadline; i += 12) {
+      await Promise.all(missing.slice(i, i + 12).map(async (contract) => {
+        const hex = await this.rpcPost(rpc, 'eth_call', [{ to: contract, data: '0x06fdde03' }, 'latest']).catch(() => null) as string | null;
+        this.tokenNames.set(contract, typeof hex === 'string' ? this.decodeAbiString(hex) : null);
+      }));
+    }
+    for (const t of transfers) if (t.contract && !t.tokenName) t.tokenName = this.tokenNames.get(t.contract) ?? null;
   }
 
   private async fetchJsonRetry(url: string, tries = 4): Promise<Record<string, unknown>> {
@@ -568,7 +585,7 @@ export class EvmProvider {
         scanBase, `tokentxns?a=${address}`, network, 'token',
         () => true, opts.limit,
       );
-      this.logger.log(`[Scan] ${network} token: ${r.parsed} parsed over ${r.pages} page(s), ${r.kept.length} kept (USD≥$1) [${r.status}]`);
+      this.logger.log(`[Scan] ${network} token: ${r.parsed} parsed over ${r.pages} page(s), ${r.kept.length} kept [${r.status}]`);
       if (r.failed) diag = `${network}: не удалось загрузить токен-переводы с ${scanBase}`;
       statuses.push(r.status);
       out.push(...r.kept);
@@ -599,12 +616,16 @@ export class EvmProvider {
     // one (BSC), else BscScan / BaseScan HTML scraping.
     if (network in NODEREAL_HOSTS) {
       const nr = await this.fetchWalletTransfersNodeReal(network, address, opts);
-      if (nr.status !== 'down' || !(network in SCAN_HOSTS)) return nr;
+      if (nr.status !== 'down' || !(network in SCAN_HOSTS)) { await this.fillTokenNames(network, nr.transfers); return nr; }
       const scan = await this.fetchWalletTransfersScan(network, address, opts); // last resort
-      return scan.transfers.length ? scan : nr;
+      const result = scan.transfers.length ? scan : nr;
+      await this.fillTokenNames(network, result.transfers);
+      return result;
     }
     if (network in SCAN_HOSTS) {
-      return this.fetchWalletTransfersScan(network, address, opts);
+      const result = await this.fetchWalletTransfersScan(network, address, opts);
+      await this.fillTokenNames(network, result.transfers);
+      return result;
     }
 
     const source = `etherscan:${network}`;
@@ -637,6 +658,7 @@ export class EvmProvider {
     }
     // The JSON API can't "drift" (no HTML to misparse) → ok / empty / down only.
     const status: SourceStatus = diag ? 'down' : out.length ? 'ok' : 'empty';
+    await this.fillTokenNames(network, out);
     return { transfers: out, diag: out.length ? null : diag, status, source };
   }
 

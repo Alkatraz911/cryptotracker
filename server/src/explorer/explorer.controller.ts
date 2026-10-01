@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { ExplorerService } from './explorer.service';
@@ -8,6 +8,9 @@ import { ProviderHealthService } from './provider-health.service';
 import { AddBridgeDto } from './dto/add-bridge.dto';
 import { ImportLabelsDto, LookupLabelsDto, OkxTagsDto, SetLabelDto } from './dto/set-label.dto';
 import { LabelRegistryService } from './label-registry.service';
+import { TokenRegistryService } from './token-registry.service';
+import { ImportTokensDto, SetTokenDto } from './dto/set-token.dto';
+import type { TokenStatus } from './entities/token-contract.entity';
 import type { JwtPayload } from '../auth/strategies/jwt.strategy';
 
 interface AuthRequest { user: JwtPayload }
@@ -21,7 +24,26 @@ export class ExplorerController {
     private readonly labels: LabelRegistryService,
     private readonly bridgeHub: BridgeHubService,
     private readonly health: ProviderHealthService,
+    private readonly tokens: TokenRegistryService,
   ) {}
+
+  @Get('tokens')
+  @UseGuards(AdminGuard)
+  listTokens(@Query('network') network?: string, @Query('status') status?: TokenStatus, @Query('q') q?: string) {
+    return this.tokens.list(network, status, q);
+  }
+
+  @Patch('tokens')
+  @UseGuards(AdminGuard)
+  setToken(@Request() req: AuthRequest, @Body() dto: SetTokenDto) {
+    return this.tokens.setStatus(dto, req.user.email);
+  }
+
+  @Post('tokens/import')
+  @UseGuards(AdminGuard)
+  async importTokens(@Request() req: AuthRequest, @Body() dto: ImportTokensDto) {
+    return { imported: await this.tokens.setMany(dto.entries, req.user.email) };
+  }
 
   // Health of the (scraping/undocumented-API) data sources, as observed from real
   // traffic — lets the operator see which explorer is down or has drifted instead
