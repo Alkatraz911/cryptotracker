@@ -21,6 +21,7 @@ const MINT_SYMBOLS: Record<string, string> = {
 @Injectable()
 export class SolanaProvider {
   private readonly logger = new Logger(SolanaProvider.name);
+  private readonly mintMetadata = new Map<string, { symbol: string; name: string | null }>();
   private readonly key: () => string;
   private readonly heliusKey: () => string;
 
@@ -155,6 +156,15 @@ export class SolanaProvider {
       if (ix['program'] === 'spl-token' &&
           (parsed['type'] === 'transferChecked' || parsed['type'] === 'transfer')) {
         const ta = info['tokenAmount'] as Record<string, unknown> | undefined;
+        const balances = [
+          ...(((tx['meta'] as Record<string, unknown>)?.['preTokenBalances'] ?? []) as Array<Record<string, unknown>>),
+          ...(((tx['meta'] as Record<string, unknown>)?.['postTokenBalances'] ?? []) as Array<Record<string, unknown>>),
+        ];
+        const sourceIndex = keys.findIndex((key) => key.pubkey === info['source']);
+        const destIndex = keys.findIndex((key) => key.pubkey === info['destination']);
+        const mint = info['mint'] as string | undefined
+          || (balances.find((b) => b['accountIndex'] === sourceIndex || b['accountIndex'] === destIndex)?.['mint'] as string | undefined)
+          || (balances[0]?.['mint'] as string | undefined);
         // 'transfer' gives raw amount without decimals; 'transferChecked' gives tokenAmount.uiAmount
         const amount = ta?.['uiAmount'] != null
           ? Number(ta['uiAmount'])
@@ -164,7 +174,8 @@ export class SolanaProvider {
           from:   info['authority'] as string || info['source'] as string || defaultFrom,
           to:     info['destination'] as string || null,
           amount,
-          asset: 'SPL',
+          asset: mint ? MINT_SYMBOLS[mint] || 'SPL' : 'SPL',
+          contract: mint || null,
         };
       }
     }
@@ -215,18 +226,40 @@ export class SolanaProvider {
     // Helius enhanced API first — parsed transfers with OWNER addresses + amounts.
     if (this.heliusKey()) {
       const h = await this.fetchWalletTransfersHelius(address, opts);
-      if (h.transfers.length) return h;
+      if (h.transfers.length) { await this.decorateMints(h.transfers); return h; }
       this.logger.warn(`Helius returned no transfers (${h.diag ?? 'empty'}) — trying other sources`);
     }
     const KEY = this.key();
     // Solscan Pro (works on paid tiers — richer data incl. token symbols).
     if (KEY) {
       const pro = await this.fetchWalletTransfersPro(address, opts, KEY);
-      if (pro.transfers.length) return pro;
+      if (pro.transfers.length) { await this.decorateMints(pro.transfers); return pro; }
       this.logger.warn('Solscan Pro returned no wallet data (free-tier key blocks it) — falling back to public RPC');
     }
     // Free fallback: reconstruct history from RPC (Helius RPC if key, else public).
-    return this.fetchWalletTransfersRpc(address, opts);
+    const rpc = await this.fetchWalletTransfersRpc(address, opts);
+    await this.decorateMints(rpc.transfers);
+    return rpc;
+  }
+
+  private async decorateMints(transfers: TransferItem[]): Promise<void> {
+    const key = this.heliusKey();
+    if (!key) return;
+    const unknown = [...new Set(transfers.filter((t) => t.contract && (!t.asset || t.asset === 'SPL')).map((t) => t.contract!))]
+      .filter((mint) => !this.mintMetadata.has(mint)).slice(0, 100);
+    if (unknown.length) {
+      const response = await this.rpcCall(`https://mainnet.helius-rpc.com/?api-key=${key}`, 'getAssetBatch', [{ ids: unknown }]);
+      if (Array.isArray(response)) for (const asset of response as Array<Record<string, unknown>>) {
+        const id = asset['id'] as string;
+        const content = asset['content'] as Record<string, unknown> | undefined;
+        const metadata = content?.['metadata'] as Record<string, unknown> | undefined;
+        if (id) this.mintMetadata.set(id, { symbol: String(metadata?.['symbol'] || MINT_SYMBOLS[id] || 'SPL'), name: metadata?.['name'] ? String(metadata['name']) : null });
+      }
+    }
+    for (const t of transfers) if (t.contract) {
+      const m = this.mintMetadata.get(t.contract);
+      if (m) { if (!t.asset || t.asset === 'SPL') t.asset = m.symbol; if (!t.tokenName) t.tokenName = m.name; }
+    }
   }
 
   // Helius "Parsed Transaction History" — returns owner wallets (not token
@@ -278,7 +311,7 @@ export class SolanaProvider {
             out.push({
               network: 'SOLANA', hash: sig,
               from: (t['fromUserAccount'] as string) || null, to: (t['toUserAccount'] as string) || null,
-              amount, asset: MINT_SYMBOLS[t['mint'] as string] || 'SPL', timestamp: ts,
+              amount, asset: MINT_SYMBOLS[t['mint'] as string] || 'SPL', contract: (t['mint'] as string) || null, timestamp: ts,
             });
           }
         }
@@ -320,6 +353,8 @@ export class SolanaProvider {
           network: 'SOLANA', hash: t['trans_id'] as string,
           from: t['from_address'] as string, to: t['to_address'] as string,
           amount, asset: native ? 'SOL' : (t['token_symbol'] || 'SPL') as string,
+          contract: native ? null : (t['token_address'] as string) || null,
+          tokenName: native ? null : (t['token_name'] as string) || null,
           timestamp: Number(t['block_time']) * 1000,
         });
       }

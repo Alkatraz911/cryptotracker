@@ -43,7 +43,7 @@ describe('EvmProvider · BSC via NodeReal', () => {
     expect(res.source).toBe('nodereal:bsc');
     expect(res.transfers).toEqual([
       { network: 'BSC', hash: '0xaa', from: ADDR, to: OTHER, amount: 1, asset: 'BNB', timestamp: 1700000000000 },
-      { network: 'BSC', hash: '0xbb', from: ADDR, to: OTHER, amount: 2, asset: 'USDT', timestamp: 1700000000000 },
+      { network: 'BSC', hash: '0xbb', from: ADDR, to: OTHER, amount: 2, asset: 'USDT', contract: '0x55d3', tokenName: null, timestamp: 1700000000000 },
     ]);
   });
 

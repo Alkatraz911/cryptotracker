@@ -207,7 +207,7 @@ export class TronProvider {
         (rows) => rows.forEach((t) => {
           const info = (t['tokenInfo'] || {}) as Record<string, unknown>;
           const dec = Number(info['tokenDecimal'] || 6);
-          out.push({ network: 'TRON', hash: t['transaction_id'] as string, from: t['from_address'] as string, to: t['to_address'] as string, amount: Number(t['quant']) / 10 ** dec, asset: ((info['tokenAbbr'] || '') as string).toUpperCase(), timestamp: Number(t['block_ts']) });
+          out.push({ network: 'TRON', hash: t['transaction_id'] as string, from: t['from_address'] as string, to: t['to_address'] as string, amount: Number(t['quant']) / 10 ** dec, asset: ((info['tokenAbbr'] || '') as string).toUpperCase(), contract: (t['contract_address'] || info['tokenId']) as string || null, tokenName: (info['tokenName'] as string) || null, timestamp: Number(t['block_ts']) });
         }),
       );
     }

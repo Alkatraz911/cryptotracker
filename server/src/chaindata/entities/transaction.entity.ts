@@ -13,6 +13,7 @@ const numberTransformer = {
 @Index(['network', 'fromAddr'])
 @Index(['network', 'toAddr'])
 @Index(['blockTs'])
+@Index(['network', 'tokenContract'])
 export class Transaction {
   @PrimaryColumn({ name: 'dedup_key' })
   dedupKey!: string;
@@ -34,6 +35,9 @@ export class Transaction {
 
   @Column({ type: 'varchar', nullable: true })
   asset!: string | null;
+
+  @Column({ name: 'token_contract', type: 'varchar', nullable: true })
+  tokenContract!: string | null;
 
   @Column({ type: 'double precision', nullable: true })
   amount!: number | null;

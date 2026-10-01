@@ -39,6 +39,11 @@ export interface TransferItem {
   to: string | null;
   amount?: number;
   asset?: string;
+  contract?: string | null;
+  tokenName?: string | null;
+  tokenStatus?: 'trusted' | 'scam' | 'unknown';
+  tokenReason?: string | null;
+  poisoning?: { lookalikeOf: string };
   usdValue?: number;
   timestamp?: number;
   fromLabel?: string | null; // entity tag for the from address (exchange/contract)
@@ -146,33 +151,34 @@ export class EvmProvider {
       (l) => (l['topics'] as string[])?.[0]?.toLowerCase() === TRANSFER_TOPIC && (l['topics'] as string[]).length >= 3,
     );
 
-    const all: Array<{ from: string; to: string | null; amount: number; asset: string }> = [];
+    const all: Array<{ from: string; to: string | null; amount: number; asset: string; contract?: string; tokenName?: string | null }> = [];
     if (nativeValue > 0n) {
       all.push({ from: tx['from'] as string, to: tx['to'] as string | null, amount: Number(nativeValue) / 1e18, asset: this.nativeAsset(network) });
     }
 
     if (transferLogs.length > 0) {
       const contracts = [...new Set(transferLogs.map((l) => (l['address'] as string).toLowerCase()))];
-      const tokenInfo: Record<string, { symbol: string; decimals: number }> = {};
+      const tokenInfo: Record<string, { symbol: string; decimals: number; name: string | null }> = {};
       await Promise.all(contracts.map(async (addr) => {
-        const [symHex, decHex] = await Promise.all([
+        const [symHex, decHex, nameHex] = await Promise.all([
           this.rpcPost(rpc, 'eth_call', [{ to: addr, data: '0x95d89b41' }, 'latest']).catch(() => null) as Promise<string | null>,
           this.rpcPost(rpc, 'eth_call', [{ to: addr, data: '0x313ce567' }, 'latest']).catch(() => null) as Promise<string | null>,
+          this.rpcPost(rpc, 'eth_call', [{ to: addr, data: '0x06fdde03' }, 'latest']).catch(() => null) as Promise<string | null>,
         ]);
         const decVal = decHex ? parseInt((decHex as string).replace('0x', ''), 16) : NaN;
-        tokenInfo[addr] = { symbol: this.decodeAbiString(symHex) || 'TOKEN', decimals: isNaN(decVal) ? 18 : decVal };
+        tokenInfo[addr] = { symbol: this.decodeAbiString(symHex) || 'TOKEN', decimals: isNaN(decVal) ? 18 : decVal, name: this.decodeAbiString(nameHex) };
       }));
       for (const l of transferLogs) {
         const info = tokenInfo[(l['address'] as string).toLowerCase()];
         const raw = BigInt((l['data'] as string)?.length > 2 ? (l['data'] as string) : '0x0');
         const topics = l['topics'] as string[];
-        all.push({ from: '0x' + topics[1].slice(-40), to: '0x' + topics[2].slice(-40), amount: Number(raw) / 10 ** info.decimals, asset: info.symbol });
+        all.push({ from: '0x' + topics[1].slice(-40), to: '0x' + topics[2].slice(-40), amount: Number(raw) / 10 ** info.decimals, asset: info.symbol, contract: (l['address'] as string).toLowerCase(), tokenName: info.name });
       }
     }
 
     if (!all.length) return { network, hash, from: tx['from'] as string, to: tx['to'] as string | null, amount: 0, asset: this.nativeAsset(network), timestamp };
     const first = all[0];
-    return { network, hash, from: first.from, to: first.to, amount: first.amount, asset: first.asset, timestamp, ...(all.length > 1 && { transfers: all as unknown as TransferItem[] }) };
+    return { network, hash, from: first.from, to: first.to, amount: first.amount, asset: first.asset, contract: first.contract, tokenName: first.tokenName, timestamp, ...(all.length > 1 && { transfers: all.map((item) => ({ ...item, network, hash, timestamp })) }) };
   }
 
   async fetchTx(network: string, hash: string): Promise<TransferItem | null> {
@@ -328,7 +334,9 @@ export class EvmProvider {
         const asset = (symM?.[1] ?? 'TOKEN')
           .replace(/…$/, '').replace(/\.\.\.$/, '')
           .replace(/^(?:BEP-20|ERC-20|TRC-20|[A-Z]+-\d+):\s*/i, '').trim() || 'TOKEN';
-        out.push({ network, hash, from, to, amount, asset, usdValue, timestamp });
+        const contract = cell.match(/\/token\/(0x[0-9a-fA-F]{40})/i)?.[1]?.toLowerCase() ?? null;
+        const tokenName = cell.match(/title="([^"]+)\s+\([^)]+\)"/i)?.[1] ?? null;
+        out.push({ network, hash, from, to, amount, asset, contract, tokenName, usdValue, timestamp });
       } else {
         out.push({ network, hash, from, to, amount, asset: this.nativeAsset(network), usdValue, timestamp });
       }
@@ -476,6 +484,7 @@ export class EvmProvider {
     return {
       network, hash, from, to, amount,
       asset: isToken ? String(r['asset'] || 'TOKEN') : this.nativeAsset(network),
+      ...(isToken ? { contract: String(r['contractAddress'] || '').toLowerCase() || null, tokenName: String(r['tokenName'] || '') || null } : {}),
       timestamp: ts ? ts * 1000 : undefined,
     };
   }
@@ -557,7 +566,7 @@ export class EvmProvider {
     if (opts.token) {
       const r = await this.fetchScanPaged(
         scanBase, `tokentxns?a=${address}`, network, 'token',
-        (t) => (t.usdValue ?? 0) >= 1, opts.limit,
+        () => true, opts.limit,
       );
       this.logger.log(`[Scan] ${network} token: ${r.parsed} parsed over ${r.pages} page(s), ${r.kept.length} kept (USD≥$1) [${r.status}]`);
       if (r.failed) diag = `${network}: не удалось загрузить токен-переводы с ${scanBase}`;
@@ -623,7 +632,7 @@ export class EvmProvider {
     if (opts.token) {
       for (const t of await call('tokentx')) {
         const dec = Number(t['tokenDecimal'] || 18);
-        out.push({ network, hash: t['hash'], from: t['from'], to: t['to'], amount: Number(BigInt(t['value'] || '0')) / 10 ** dec, asset: t['tokenSymbol'] || '', timestamp: Number(t['timeStamp']) * 1000 });
+        out.push({ network, hash: t['hash'], from: t['from'], to: t['to'], amount: Number(BigInt(t['value'] || '0')) / 10 ** dec, asset: t['tokenSymbol'] || '', contract: t['contractAddress']?.toLowerCase() || null, tokenName: t['tokenName'] || null, timestamp: Number(t['timeStamp']) * 1000 });
       }
     }
     // The JSON API can't "drift" (no HTML to misparse) → ok / empty / down only.
