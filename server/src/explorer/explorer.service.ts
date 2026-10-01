@@ -88,6 +88,8 @@ export class ExplorerService {
       const items = item.transfers?.length ? item.transfers : [item];
       await this.tokens.observe(items);
       await this.tokens.annotate(items);
+      for (const t of items) if (t.tokenStatus !== 'trusted') t.usdValue = undefined;
+      await this.enrichUsd(items);
       if (items !== item.transfers) Object.assign(item, items[0]);
       return item;
     } catch (e) {

@@ -71,6 +71,7 @@ export interface Project extends ProjectMeta {
 }
 export interface TxTransfer {
   from: string; to: string; amount: number; asset: string;
+  usdValue?: number;
   contract?: string | null; tokenName?: string | null; tokenStatus?: TokenStatus; tokenReason?: string | null;
 }
 
@@ -78,6 +79,7 @@ export interface TxData {
   network: string; hash: string;
   from: string | null; to: string | null;
   amount?: number; asset?: string; timestamp?: number;
+  usdValue?: number;
   contract?: string | null; tokenName?: string | null; tokenStatus?: TokenStatus; tokenReason?: string | null;
   transfers?: TxTransfer[];
 }

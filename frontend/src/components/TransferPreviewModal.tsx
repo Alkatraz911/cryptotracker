@@ -2,7 +2,7 @@ import { tr, locale } from "../lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import Modal from "./Modal";
 import { networkColor } from "../lib/explorers";
-import { readShowScam, writeShowScam } from "../lib/scam";
+import { hasUsdValue, readShowAllTransfers, transferIsVisible, writeShowAllTransfers } from "../lib/transferVisibility";
 
 export interface PickableTransfer {
   from?: string | null;
@@ -51,10 +51,11 @@ function TransferPreviewModal<T extends PickableTransfer>({
   onClose,
   title = tr("Предпросмотр транзакций"),
 }: Props<T>) {
-  const [showScam, setShowScam] = useState(readShowScam);
-  const [selected, setSelected] = useState(() => new Set(transfers.map((t, i) => t.tokenStatus === "scam" && !readShowScam() ? -1 : i).filter((i) => i >= 0)));
-  const visible = useMemo(() => transfers.map((t, i) => ({ t, i })).filter(({ t }) => showScam || t.tokenStatus !== "scam"), [transfers, showScam]);
-  const scamCount = transfers.filter((t) => t.tokenStatus === "scam").length;
+  const [showAll, setShowAll] = useState(readShowAllTransfers);
+  const [selected, setSelected] = useState(() => new Set(transfers.flatMap((t, i) => transferIsVisible(t, readShowAllTransfers()) ? [i] : [])));
+  const visible = useMemo(() => transfers.map((t, i) => ({ t, i })).filter(({ t }) => transferIsVisible(t, showAll)), [transfers, showAll]);
+  const hiddenCount = transfers.filter((t) => !hasUsdValue(t)).length;
+  const allVisibleSelected = visible.length > 0 && visible.every(({ i }) => selected.has(i));
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -65,8 +66,8 @@ function TransferPreviewModal<T extends PickableTransfer>({
   }, [onClose]);
 
   const totalUsd = useMemo(
-    () => transfers.reduce((s, t, i) => (selected.has(i) && (showScam || t.tokenStatus !== "scam") ? s + (t.usdValue ?? 0) : s), 0),
-    [transfers, selected, showScam]
+    () => transfers.reduce((s, t, i) => (selected.has(i) && transferIsVisible(t, showAll) ? s + (t.usdValue ?? 0) : s), 0),
+    [transfers, selected, showAll]
   );
 
   function toggle(i: number) {
@@ -77,18 +78,18 @@ function TransferPreviewModal<T extends PickableTransfer>({
     });
   }
   function toggleAll() {
-    setSelected((prev) => (visible.every(({ i }) => prev.has(i)) ? new Set() : new Set(visible.map(({ i }) => i))));
+    setSelected((prev) => (visible.length > 0 && visible.every(({ i }) => prev.has(i)) ? new Set() : new Set(visible.map(({ i }) => i))));
   }
 
   return (
     <Modal title={title} onClose={onClose} width={960}>
       <div className="picker-header">
-        <label><input type="checkbox" checked={showScam} onChange={(e) => { setShowScam(e.target.checked); writeShowScam(e.target.checked); if (!e.target.checked) setSelected((old) => new Set([...old].filter((i) => transfers[i]?.tokenStatus !== "scam"))); }} /> {tr("показать скам ({n})", { n: scamCount })}</label>
+        <label><input type="checkbox" checked={showAll} onChange={(e) => { setShowAll(e.target.checked); writeShowAllTransfers(e.target.checked); if (!e.target.checked) setSelected((old) => new Set([...old].filter((i) => hasUsdValue(transfers[i])))); }} /> {tr("показать все транзакции ({n})", { n: hiddenCount })}</label>
         <span style={{ color: "#9ca3af", fontSize: 12 }}>
           {visible.length} {tr("переводов")}{totalUsd > 0 ? ` · ${tr("выбрано ≈ ${usd}", { usd: totalUsd.toLocaleString(locale(), { maximumFractionDigits: 0 }) })}` : ""}
         </span>
         <button className="link" onClick={toggleAll}>
-          {visible.every(({ i }) => selected.has(i)) ? tr("Снять все") : tr("Выбрать все")}
+          {allVisibleSelected ? tr("Снять все") : tr("Выбрать все")}
         </button>
       </div>
 

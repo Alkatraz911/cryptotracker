@@ -420,6 +420,7 @@ export const EN: Record<string, string> = {
 
 Object.assign(EN, {
   "показать скам ({n})": "show scam ({n})",
+  "показать все транзакции ({n})": "show all transfers ({n})",
   "скам": "scam",
   "похоже на отравление адреса: имитирует {address}": "possible address poisoning: imitates {address}",
   "Все сети": "All networks",

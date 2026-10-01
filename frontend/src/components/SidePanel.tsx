@@ -7,7 +7,7 @@ import { transfersSubgraph, bridgeSubgraph, annotationsForNodeView } from "../li
 import { chainIdForNode, bridgeForTx, bridgeAnchorForTx } from "../lib/orbiter";
 import { ALL_NETWORKS, networkColor, okxAddressUrl, txUrl, walletNodeId, type Network } from "../lib/explorers";
 import { nodeIsRisky } from "../lib/tags";
-import { assetKey, readShowScam, writeShowScam } from "../lib/scam";
+import { assetKey, hasUsdValue, readShowAllTransfers, transferIsVisible, writeShowAllTransfers } from "../lib/transferVisibility";
 import type { AnnotationKind, BuiltGraph, GAnnotation, GEdge, GNode } from "../lib/graph";
 
 interface Props {
@@ -77,7 +77,7 @@ function balanceTitle(bal?: WalletBalance | null): string {
 }
 
 export default function SidePanel(props: Props) {
-  const [showScam, setShowScam] = useState(readShowScam);
+  const [showAll, setShowAll] = useState(readShowAllTransfers);
   const { node, graph, onClose, onAdd, onFocus, onPatchNode, cache, onCacheNet, chat, onChatChange } = props;
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -196,7 +196,7 @@ export default function SidePanel(props: Props) {
   const cur = byNet[activeNet];
   const curBal = balByNet[activeNet];
   const txs = cur ? cur.transfers : null;
-  const visibleTxs = useMemo(() => txs?.filter((t) => showScam || t.tokenStatus !== "scam") ?? null, [txs, showScam]);
+  const visibleTxs = useMemo(() => txs?.filter((t) => transferIsVisible(t, showAll)) ?? null, [txs, showAll]);
   const txLoading = isWallet && (cur ? cur.loading : true);
   const balLoading = isWallet && (curBal ? curBal.loading : true);
   const sent = useMemo(() => (visibleTxs && addr ? visibleTxs.filter((t) => t.from?.toLowerCase() === addr) : []), [visibleTxs, addr]);
@@ -286,8 +286,8 @@ export default function SidePanel(props: Props) {
             activeNet={activeNet}
             onNet={selectNet}
             txs={txs}
-            showScam={showScam}
-            onShowScam={(value) => { setShowScam(value); writeShowScam(value); }}
+            showAll={showAll}
+            onShowAll={(value) => { setShowAll(value); writeShowAllTransfers(value); }}
             busy={!!cur?.loading}
             err={cur?.err ?? null}
             diag={cur?.diag ?? null}
@@ -663,13 +663,13 @@ function AggTxTab({ node }: { node: GNode }) {
 }
 
 function TxTab({
-  activeNet, onNet, txs, showScam, onShowScam, busy, err, diag, status, addr, onLoadWindow, onRefresh, onAddSelected, labelByAddr,
+  activeNet, onNet, txs, showAll, onShowAll, busy, err, diag, status, addr, onLoadWindow, onRefresh, onAddSelected, labelByAddr,
 }: {
   activeNet: Network;
   onNet: (net: Network) => void;
-  txs: Transfer[] | null; // full stored history (drives the default view + metrics)
-  showScam: boolean;
-  onShowScam: (value: boolean) => void;
+  txs: Transfer[] | null; // full stored history, filtered by the view before metrics and graph selection
+  showAll: boolean;
+  onShowAll: (value: boolean) => void;
   busy: boolean;
   err: string | null;
   diag: string | null;
@@ -732,13 +732,13 @@ function TxTab({
   const source = hasRange ? (windowed ?? []) : (txs ?? []);
   const loading = busy || winBusy;
 
-  const visibleSource = useMemo(() => source.filter((t) => showScam || t.tokenStatus !== "scam"), [source, showScam]);
-  const scamCount = source.length - source.filter((t) => t.tokenStatus !== "scam").length;
+  const visibleSource = useMemo(() => source.filter((t) => transferIsVisible(t, showAll)), [source, showAll]);
+  const hiddenCount = source.filter((t) => !hasUsdValue(t)).length;
   const assets = useMemo(() => [...new Map(visibleSource.filter((t) => !!t.asset).map((t) => [assetKey(t), t])).entries()], [visibleSource]);
   useEffect(() => { setSel(new Set()); }, [source]);
 
   const filtered = useMemo(() => {
-    let list = source.map((t, i) => ({ t, i })).filter(({ t }) => showScam || t.tokenStatus !== "scam");
+    let list = source.map((t, i) => ({ t, i })).filter(({ t }) => transferIsVisible(t, showAll));
     if (!(native && token)) list = list.filter((x) => {
       const n = isNativeAsset(x.t.asset);
       if (native) return n;
@@ -754,7 +754,7 @@ function TxTab({
       return sortDir === "desc" ? vb - va : va - vb;
     });
     return list;
-  }, [source, showScam, native, token, asset, dir, addr, sortKey, sortDir]);
+  }, [source, showAll, native, token, asset, dir, addr, sortKey, sortDir]);
 
   // Virtual scroll: render only the rows visible in the scroll container, so the
   // full (up to 2000-row) history scrolls smoothly without paging.
@@ -802,7 +802,7 @@ function TxTab({
   function toggle(i: number) {
     setSel((p) => { const n = new Set(p); n.has(i) ? n.delete(i) : n.add(i); return n; });
   }
-  const selTransfers = () => source.filter((t, i) => sel.has(i) && (showScam || t.tokenStatus !== "scam")).map((t) => withKnownLabels(t, labelByAddr, fetched));
+  const selTransfers = () => source.filter((t, i) => sel.has(i) && transferIsVisible(t, showAll)).map((t) => withKnownLabels(t, labelByAddr, fetched));
 
   return (
     <div className="tx-tab">
@@ -817,7 +817,7 @@ function TxTab({
         <div className="ltchecks">
           <label><input type="checkbox" checked={native} onChange={(e) => setNative(e.target.checked)} /> {tr("Нативные")}</label>
           <label><input type="checkbox" checked={token} onChange={(e) => setToken(e.target.checked)} /> {tr("Токены")}</label>
-          <label><input type="checkbox" checked={showScam} onChange={(e) => { onShowScam(e.target.checked); setSel(new Set()); setAsset(""); }} /> {tr("показать скам ({n})", { n: scamCount })}</label>
+          <label><input type="checkbox" checked={showAll} onChange={(e) => { onShowAll(e.target.checked); setSel(new Set()); setAsset(""); }} /> {tr("показать все транзакции ({n})", { n: hiddenCount })}</label>
         </div>
         <div className="tx-daterow">
           <span className="tx-date-lbl">{tr("период:")}</span>
